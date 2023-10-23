@@ -29,4 +29,5 @@ The config is created automatically in the same place where the dll is located
 
 # Commands
 `css_vip_reload` - reloads the configuration. Only for those specified in the configuration
+
 `css_vip_gravity` - allows you to turn gravity on and off
