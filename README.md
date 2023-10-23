@@ -24,3 +24,6 @@ The config is created automatically in the same place where the dll is located
 }
 
 ```
+
+# Commands
+`css_vip_reload` - reloads the configuration
