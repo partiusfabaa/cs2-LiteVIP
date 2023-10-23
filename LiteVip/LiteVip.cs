@@ -6,15 +6,17 @@ using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Modules.Memory;
 
 namespace LiteVip;
 
 public class LiteVip : BasePlugin
 {
     public override string ModuleName => "LITE-VIP by thesamefabius";
-    public override string ModuleVersion => "v1.0.0";
+    public override string ModuleVersion => "v1.0.1";
 
     private Config _config = null!;
+    private bool _isGravity;
 
     public override void Load(bool hotReload)
     {
@@ -23,9 +25,35 @@ public class LiteVip : BasePlugin
         RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
     }
 
-    [ConsoleCommand("css_vip_reload", " ")]
+    [ConsoleCommand("css_vip_gravity")]
+    public void AdjustPlayerGravity(CCSPlayerController? controller, CommandInfo command)
+    {
+        if (controller == null) return;
+
+        if (!_config.Users.TryGetValue(controller.SteamID.ToString(), out var user)) return;
+
+        _isGravity = !_isGravity;
+        if (!_isGravity)
+        {
+            controller.PrintToCenter("Gravity: Off");
+            controller.PlayerPawn.Value.GravityScale = 1.0f;
+            return;
+        }
+
+        controller.PrintToCenter("Gravity: On");
+        controller.PlayerPawn.Value.GravityScale = user.Gravity;
+    }
+
+    [ConsoleCommand("css_vip_reload")]
     public void OnCommandReloadConfig(CCSPlayerController? controller, CommandInfo command)
     {
+        if (controller != null)
+            if (!_config.Admins.Contains(controller.SteamID.ToString()))
+            {
+                controller.PrintToChat("\x08[ \x0CLITE-VIP \x08] you do not have access to this command");
+                return;
+            }
+
         _config = LoadConfig();
 
         const string msg = "\x08[ \x0CLITE-VIP \x08] configuration successfully rebooted!";
@@ -36,13 +64,15 @@ public class LiteVip : BasePlugin
             controller.PrintToChat(msg);
     }
 
-    private void EventPlayerSpawn(EventPlayerSpawn @event)
+    private HookResult EventPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
-        if (@event.Userid.Handle == IntPtr.Zero || @event.Userid.UserId == null) return;
+        if (@event.Userid.Handle == IntPtr.Zero || @event.Userid.UserId == null) return HookResult.Continue;
 
         var controller = @event.Userid;
 
         AddTimer(_config.Delay, () => Timer_Give(controller));
+
+        return HookResult.Continue;
     }
 
     private void Timer_Give(CCSPlayerController handle)
@@ -57,7 +87,16 @@ public class LiteVip : BasePlugin
 
         playerPawnValue.Health = user.Health;
         playerPawnValue.ArmorValue = user.Armor;
-        playerPawnValue.GravityScale = user.Gravity;
+
+        if (_isGravity) playerPawnValue.GravityScale = user.Gravity;
+
+        if (playerPawnValue.ItemServices != null)
+        {
+            if (user.Healthshot > 0)
+                for (var i = 0; i < user.Healthshot; i++)
+                    VirtualFunctions.GiveNamedItem(playerPawnValue.ItemServices.Handle, "weapon_healthshot", 0, 0, 0,
+                        0);
+        }
 
         if (moneyServices != null) moneyServices.Account = user.Money;
 
@@ -77,7 +116,7 @@ public class LiteVip : BasePlugin
         {
             if (!_config.Users.TryGetValue(smokeGrenade.Thrower.Value.Controller.Value.SteamID.ToString(),
                     out var user)) return;
-            
+
             var split = user.SmokeColor.Split(" ");
 
             smokeGrenade.SmokeColor.X = float.Parse(split[0]);
@@ -101,17 +140,19 @@ public class LiteVip : BasePlugin
     {
         var config = new Config
         {
+            Admins = "SteamID64;SteamID64",
             Delay = 2.0f,
             Users = new Dictionary<string, VipUser>
             {
                 {
-                    "steamId", new VipUser
+                    "SteamID64", new VipUser
                     {
                         Health = 100,
                         Armor = 100,
                         Gravity = 1.0f,
                         Money = 1000,
-                        SmokeColor = "255 255 255"
+                        SmokeColor = "255 255 255",
+                        Healthshot = 1
                     }
                 }
             }
@@ -129,6 +170,7 @@ public class LiteVip : BasePlugin
 
 public class Config
 {
+    public required string Admins { get; set; }
     public float Delay { get; set; }
     public required Dictionary<string, VipUser> Users { get; set; }
 }
@@ -140,4 +182,5 @@ public class VipUser
     public float Gravity { get; init; }
     public int Money { get; init; }
     public required string SmokeColor { get; init; }
+    public int Healthshot { get; init; }
 }
