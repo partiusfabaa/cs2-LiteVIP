@@ -13,16 +13,21 @@ namespace LiteVip;
 public class LiteVip : BasePlugin
 {
     public override string ModuleName => "LITE-VIP by thesamefabius";
-    public override string ModuleVersion => "v1.0.1";
+    public override string ModuleVersion => "v1.0.0";
 
     private Config _config = null!;
-    private bool _isGravity;
+    public readonly UserSettings?[] Users = new UserSettings?[65];
 
     public override void Load(bool hotReload)
     {
         _config = LoadConfig();
         RegisterEventHandler<EventPlayerSpawn>(EventPlayerSpawn);
         RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
+        RegisterListener<Listeners.OnClientConnected>(playerSlot =>
+        { Users[playerSlot + 1] = new UserSettings { IsGravity = false }; });
+
+        RegisterListener<Listeners.OnClientDisconnectPost>(clientIndex =>
+        { Users[clientIndex + 1] = null; });
     }
 
     [ConsoleCommand("css_vip_gravity")]
@@ -30,10 +35,13 @@ public class LiteVip : BasePlugin
     {
         if (controller == null) return;
 
-        if (!_config.Users.TryGetValue(controller.SteamID.ToString(), out var user)) return;
+        var steamId = controller.SteamID;
 
-        _isGravity = !_isGravity;
-        if (!_isGravity)
+        if (!_config.Users.TryGetValue(steamId.ToString(), out var user)) return;
+
+        var gravity = Users[controller.EntityIndex!.Value.Value]!.IsGravity ^= true;
+
+        if (gravity)
         {
             controller.PrintToCenter("Gravity: Off");
             controller.PlayerPawn.Value.GravityScale = 1.0f;
@@ -87,8 +95,8 @@ public class LiteVip : BasePlugin
 
         playerPawnValue.Health = user.Health;
         playerPawnValue.ArmorValue = user.Armor;
-
-        if (_isGravity) playerPawnValue.GravityScale = user.Gravity;
+        
+        if (Users[handle.EntityIndex!.Value.Value]!.IsGravity) playerPawnValue.GravityScale = user.Gravity;
 
         if (playerPawnValue.ItemServices != null)
         {
@@ -166,6 +174,11 @@ public class LiteVip : BasePlugin
 
         return config;
     }
+}
+
+public class UserSettings
+{
+    public bool IsGravity { get; set; }
 }
 
 public class Config
