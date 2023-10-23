@@ -19,8 +19,8 @@ The config is created automatically in the same place where the dll is located
 		"Gravity":0.7,	//Gravity: less than 1 is low, more than 1 is high.
 		"Money":16000,	//amount of money at spawning
 		"SmokeColor":"255 0 0"	//color R G B is spelled with a space.
-		}
-	}
+       }
+    }
 }
 
 ```
