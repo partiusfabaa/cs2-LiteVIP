@@ -2,9 +2,9 @@
 plugin for cs2 with basic functions VIP
 
 # Installation
-1. Install [CounterStrike Sharp](https://github.com/roflmuffin/CounterStrikeSharp)
-2. Download [LiteVIP](https://github.com/partiusfabaa/cs2-LiteVIP/releases)
-3. Unzip the archive and upload it to the game server
+1. Install [CounterStrike Sharp](https://github.com/roflmuffin/CounterStrikeSharp) and [Metamod:Source](https://www.sourcemm.net/downloads.php/?branch=master)
+3. Download [LiteVIP](https://github.com/partiusfabaa/cs2-LiteVIP/releases)
+4. Unzip the archive and upload it to the game server
 
 # Config
 The config is created automatically in the same place where the dll is located
