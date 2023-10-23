@@ -41,7 +41,7 @@ public class LiteVip : BasePlugin
 
         var gravity = Users[controller.EntityIndex!.Value.Value]!.IsGravity ^= true;
 
-        if (gravity)
+        if (!gravity)
         {
             controller.PrintToCenter("Gravity: Off");
             controller.PlayerPawn.Value.GravityScale = 1.0f;
