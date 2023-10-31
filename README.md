@@ -11,10 +11,10 @@ The config is created automatically in the same place where the dll is located
 ```
 
 {
-  "Admins": [76561199096378663],//SteamID64 should be separated by commas
+  "Admins": [76561144096558223],//SteamID64 should be separated by commas
   "Delay": 2, 			//At what interval to issue the VIP(second)
   "Users": {
-    "76561199096378663": { 	//steamid64
+    "76561144096558223": { 	//steamid64
       "Health": 175,		//amount of health
       "Armor": 175,		//amount of armor
       "Gravity": 0.7,		//Gravity: less than 1 is low, more than 1 is high.
