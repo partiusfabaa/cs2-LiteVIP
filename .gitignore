@@ -58,3 +58,4 @@ LiteVip/obj/LiteVip.csproj.nuget.g.props
 LiteVip/obj/release/net7.0/.NETCoreApp,Version=v7.0.AssemblyAttributes.cs
 *.targets
 LiteVip/obj/release/net7.0/LiteVip.AssemblyInfo.cs
+LiteVip/bin/release/net7.0/publish/LiteVip.zip
