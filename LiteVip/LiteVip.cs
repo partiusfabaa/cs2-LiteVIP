@@ -14,8 +14,9 @@ namespace LiteVip;
 
 public class LiteVip : BasePlugin
 {
-    public override string ModuleName => "Lite VIP | by thesamefabius";
-    public override string ModuleVersion => "v1.0.3";
+    public override string ModuleAuthor => "by thesamefabius";
+    public override string ModuleName => "Lite VIP";
+    public override string ModuleVersion => "v1.0.4";
 
     private static Config _config = null!;
     public static readonly UserSettings?[] Users = new UserSettings?[Server.MaxPlayers];
@@ -188,10 +189,13 @@ public class LiteVip : BasePlugin
 
             if (userSettings.IsItems)
             {
-                var splitItems = user.Items.Split(";");
+                if(!string.IsNullOrEmpty(user.Items))
+                {
+                    var splitItems = user.Items.Split(";");
 
-                foreach (var item in splitItems)
-                    GiveItem(handle, item);
+                    foreach (var item in splitItems)
+                        GiveItem(handle, item);
+                }
             }
         }
         
