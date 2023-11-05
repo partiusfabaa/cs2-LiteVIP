@@ -1,7 +1,7 @@
 # cs2-LiteVIP
 plugin for cs2 with basic functions VIP
 
-<img src="https://github.com/partiusfabaa/cs2-LiteVIP/assets/96542489/a0c9073e-954e-49fc-9ecf-7da0a469eb74" width="150" height="150">
+<img src="https://github.com/partiusfabaa/cs2-LiteVIP/assets/96542489/e99c9cb4-b456-4947-bd6d-d2efd7fc98b0" width="194" height="293">
 
 # Installation
 1. Install [CounterStrike Sharp](https://github.com/roflmuffin/CounterStrikeSharp) and [Metamod:Source](https://www.sourcemm.net/downloads.php/?branch=master)
@@ -24,6 +24,7 @@ The config is created automatically in the same place where the dll is located
       "SmokeColor": "255 11 22",//color R G B is spelled with a space.
       "Healthshot": 1,		//syringe count at revival
       "JumpsCount": 2,		//number of additional jumps
+      "Items": "weapon_molotov;weapon_ak47", //items given out at revival. Write via ';'. If you don't need anything, leave the field blank
       "DecoySettings": {	
         "DecoyTeleport": true,	  //Is the teleportation grenade enabled? true - yes, false - no
         "DecoyCountInOneRound": 1,//how many teleportation grenades can be used in one round?
