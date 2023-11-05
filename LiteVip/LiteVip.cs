@@ -51,8 +51,8 @@ public class LiteVip : BasePlugin
             {
                 IsGravity = false, IsHealth = true, IsArmor = true,
                 IsHealthshot = true, IsDecoy = true, IsJumps = true,
-                DecoyCount = 0, JumpsCount = 0, LastButtons = 0,
-                LastFlags = 0
+                IsItems = true, DecoyCount = 0, JumpsCount = 0, 
+                LastButtons = 0, LastFlags = 0
             };
         });
 
@@ -149,26 +149,34 @@ public class LiteVip : BasePlugin
     {
         if (handle.SteamID == 0) return;
         var steamId = handle.SteamID.ToString();
-        var entityIndex = handle.EntityIndex!.Value.Value;
         if (!_config.Users.TryGetValue(steamId, out var user)) return;
 
+        var userSettings = Users[handle.EntityIndex!.Value.Value]!;
+        
         var playerPawnValue = handle.PlayerPawn.Value;
         var moneyServices = handle.InGameMoneyServices;
 
-        if (Users[entityIndex]!.IsHealth) playerPawnValue.Health = user.Health;
-        if (Users[entityIndex]!.IsArmor) playerPawnValue.ArmorValue = user.Armor;
+        if (userSettings.IsHealth) playerPawnValue.Health = user.Health;
+        if (userSettings.IsArmor) playerPawnValue.ArmorValue = user.Armor;
 
-        if (Users[entityIndex]!.IsGravity) playerPawnValue.GravityScale = user.Gravity;
+        if (userSettings.IsGravity) playerPawnValue.GravityScale = user.Gravity;
 
         if (playerPawnValue.ItemServices != null)
         {
             if (user.DecoySettings.DecoyTeleport)
-                if (Users[entityIndex]!.IsDecoy)
+            {
+                if (userSettings.IsDecoy)
+                {
                     if (user.DecoySettings.DecoyCountToBeIssued > 0)
+                    {
                         for (var i = 0; i < user.DecoySettings.DecoyCountToBeIssued; i++)
                             GiveItem(handle, "weapon_decoy");
+                    }
+                }
+            }
 
-            if (Users[entityIndex]!.IsHealthshot)
+            if (userSettings.IsHealthshot)
+            {
                 if (user.Healthshot > 0)
                 {
                     for (var i = 0; i < user.Healthshot; i++)
@@ -176,9 +184,17 @@ public class LiteVip : BasePlugin
                 }
                 else if (user.Healthshot == 1)
                     GiveItem(handle, "weapon_healthshot");
+            }
+
+            if (userSettings.IsItems)
+            {
+                var splitItems = user.Items.Split(";");
+
+                foreach (var item in splitItems)
+                    GiveItem(handle, item);
+            }
         }
-
-
+        
         if (user.Money != -1)
             if (moneyServices != null)
                 moneyServices.Account = user.Money;
@@ -238,6 +254,8 @@ public class LiteVip : BasePlugin
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsDecoy ^= true, option.Text));
         menu.AddMenuOption("Jumps", (player, option) =>
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsJumps ^= true, option.Text));
+        menu.AddMenuOption("Items", (player, option) =>
+            TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsItems ^= true, option.Text));
         AddCommand("css_vip", "command that opens the VIP MENU", (player, _) =>
         {
             if (player == null) return;
@@ -336,6 +354,7 @@ public class LiteVip : BasePlugin
                         SmokeColor = "255 255 255",
                         Healthshot = 1,
                         JumpsCount = 2,
+                        Items = "weapon_molotov;weapon_hegrenade",
                         DecoySettings = new Decoy
                             { DecoyTeleport = true, DecoyCountInOneRound = 1, DecoyCountToBeIssued = 1 }
                     }
@@ -362,6 +381,7 @@ public class UserSettings
     public bool IsHealthshot { get; set; }
     public bool IsDecoy { get; set; }
     public bool IsJumps { get; set; }
+    public bool IsItems { get; set; }
     public int DecoyCount { get; set; }
     public int JumpsCount { get; set; }
     public PlayerButtons LastButtons { get; set; }
@@ -384,6 +404,7 @@ public class VipUser
     public required string SmokeColor { get; init; }
     public int Healthshot { get; init; }
     public int JumpsCount { get; init; }
+    public required string Items { get; set; }
     public Decoy DecoySettings { get; init; } = null!;
 }
 
