@@ -1,12 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
-using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Utils;
 
@@ -25,7 +25,6 @@ public class LiteVip : BasePlugin
     {
         _config = LoadConfig();
         RegisterEventHandler<EventDecoyFiring>(EventDecoyFiring);
-        RegisterEventHandler<EventPlayerBlind>(EventPlayerBlind);
         RegisterEventHandler<EventPlayerSpawn>(EventPlayerSpawn);
         RegisterEventHandler<EventRoundStart>(EventRoundStart);
 
@@ -52,7 +51,7 @@ public class LiteVip : BasePlugin
             {
                 IsGravity = false, IsHealth = true, IsArmor = true,
                 IsHealthshot = true, IsDecoy = true, IsJumps = true,
-                IsItems = true, DecoyCount = 0, JumpsCount = 0, 
+                IsItems = true, DecoyCount = 0, JumpsCount = 0,
                 LastButtons = 0, LastFlags = 0
             };
         });
@@ -60,13 +59,6 @@ public class LiteVip : BasePlugin
         RegisterListener<Listeners.OnClientDisconnectPost>(clientIndex => { Users[clientIndex + 1] = null; });
 
         CreateMenu();
-    }
-
-    private HookResult EventPlayerBlind(EventPlayerBlind @event, GameEventInfo info)
-    {
-        @event.BlindDuration = 0.0f;
-
-        return HookResult.Continue;
     }
 
     private HookResult EventRoundStart(EventRoundStart @event, GameEventInfo info)
@@ -132,7 +124,7 @@ public class LiteVip : BasePlugin
         if (controller == null)
             Console.WriteLine(msg);
         else
-            controller.PrintToChat(msg); 
+            controller.PrintToChat(msg);
     }
 
     private HookResult EventPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
@@ -153,7 +145,7 @@ public class LiteVip : BasePlugin
         if (!_config.Users.TryGetValue(steamId, out var user)) return;
 
         var userSettings = Users[handle.EntityIndex!.Value.Value]!;
-        
+
         var playerPawnValue = handle.PlayerPawn.Value;
         var moneyServices = handle.InGameMoneyServices;
 
@@ -189,16 +181,14 @@ public class LiteVip : BasePlugin
 
             if (userSettings.IsItems)
             {
-                if(!string.IsNullOrEmpty(user.Items))
+                if (user.Items.Count > 0)
                 {
-                    var splitItems = user.Items.Split(";");
-
-                    foreach (var item in splitItems)
+                    foreach (var item in user.Items)
                         GiveItem(handle, item);
                 }
             }
         }
-        
+
         if (user.Money != -1)
             if (moneyServices != null)
                 moneyServices.Account = user.Money;
@@ -358,7 +348,7 @@ public class LiteVip : BasePlugin
                         SmokeColor = "255 255 255",
                         Healthshot = 1,
                         JumpsCount = 2,
-                        Items = "weapon_molotov;weapon_hegrenade",
+                        Items = new List<string> { "weapon_molotov", "weapon_ak47" },
                         DecoySettings = new Decoy
                             { DecoyTeleport = true, DecoyCountInOneRound = 1, DecoyCountToBeIssued = 1 }
                     }
@@ -408,7 +398,7 @@ public class VipUser
     public required string SmokeColor { get; init; }
     public int Healthshot { get; init; }
     public int JumpsCount { get; init; }
-    public required string Items { get; set; }
+    public List<string> Items { get; init; } = null!;
     public Decoy DecoySettings { get; init; } = null!;
 }
 
