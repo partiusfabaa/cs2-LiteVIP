@@ -14,8 +14,8 @@ namespace LiteVip;
 
 public class LiteVip : BasePlugin
 {
-    public override string ModuleName => "Lite-Vip by thesamefabius";
-    public override string ModuleVersion => "v1.0.2";
+    public override string ModuleName => "Lite VIP | by thesamefabius";
+    public override string ModuleVersion => "v1.0.3";
 
     private static Config _config = null!;
     public static readonly UserSettings?[] Users = new UserSettings?[Server.MaxPlayers];
@@ -24,6 +24,7 @@ public class LiteVip : BasePlugin
     {
         _config = LoadConfig();
         RegisterEventHandler<EventDecoyFiring>(EventDecoyFiring);
+        RegisterEventHandler<EventPlayerBlind>(EventPlayerBlind);
         RegisterEventHandler<EventPlayerSpawn>(EventPlayerSpawn);
         RegisterEventHandler<EventRoundStart>(EventRoundStart);
 
@@ -58,6 +59,13 @@ public class LiteVip : BasePlugin
         RegisterListener<Listeners.OnClientDisconnectPost>(clientIndex => { Users[clientIndex + 1] = null; });
 
         CreateMenu();
+    }
+
+    private HookResult EventPlayerBlind(EventPlayerBlind @event, GameEventInfo info)
+    {
+        @event.BlindDuration = 0.0f;
+             
+         return HookResult.Continue;
     }
 
     private HookResult EventRoundStart(EventRoundStart @event, GameEventInfo info)
@@ -158,12 +166,12 @@ public class LiteVip : BasePlugin
                 if (Users[entityIndex]!.IsDecoy)
                     if (user.DecoySettings.DecoyCountToBeIssued > 0)
                         for (var i = 0; i < user.DecoySettings.DecoyCountToBeIssued; i++)
-                            GiveItem(playerPawnValue.ItemServices.Handle, "weapon_decoy");
+                            GiveItem(handle, "weapon_decoy");
 
             if (Users[entityIndex]!.IsHealthshot)
                 if (user.Healthshot > 0)
                     for (var i = 0; i < user.Healthshot; i++)
-                        GiveItem(playerPawnValue.ItemServices.Handle, "weapon_healthshot");
+                        GiveItem(handle, "weapon_healthshot");
         }
 
         if (moneyServices != null) moneyServices.Account = user.Money;
@@ -204,9 +212,9 @@ public class LiteVip : BasePlugin
         Users[client]!.LastButtons = buttons;
     }
 
-    private void GiveItem(IntPtr handle, string item)
+    private void GiveItem(CCSPlayerController handle, string item)
     {
-        VirtualFunctions.GiveNamedItem(handle, item, 0, 0, 0, 0);
+        handle.GiveNamedItem(item);
     }
 
     private void CreateMenu()
@@ -223,7 +231,7 @@ public class LiteVip : BasePlugin
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsDecoy ^= true, option.Text));
         menu.AddMenuOption("Jumps",(player, option) =>
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsJumps ^= true, option.Text));
-        AddCommand("css_vip", "command that opens the VIP MENU", (player, _) =>
+            AddCommand("css_vip", "command that opens the VIP MENU", (player, _) =>
         {
             if (player == null) return;
 
