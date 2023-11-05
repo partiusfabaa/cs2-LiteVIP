@@ -64,8 +64,8 @@ public class LiteVip : BasePlugin
     private HookResult EventPlayerBlind(EventPlayerBlind @event, GameEventInfo info)
     {
         @event.BlindDuration = 0.0f;
-             
-         return HookResult.Continue;
+
+        return HookResult.Continue;
     }
 
     private HookResult EventRoundStart(EventRoundStart @event, GameEventInfo info)
@@ -170,11 +170,18 @@ public class LiteVip : BasePlugin
 
             if (Users[entityIndex]!.IsHealthshot)
                 if (user.Healthshot > 0)
+                {
                     for (var i = 0; i < user.Healthshot; i++)
                         GiveItem(handle, "weapon_healthshot");
+                }
+                else if (user.Healthshot == 1)
+                    GiveItem(handle, "weapon_healthshot");
         }
 
-        if (moneyServices != null) moneyServices.Account = user.Money;
+
+        if (user.Money != -1)
+            if (moneyServices != null)
+                moneyServices.Account = user.Money;
 
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"Player {handle.PlayerName} has gained Health: {user.Health} | Armor: {user.Armor}");
@@ -221,7 +228,7 @@ public class LiteVip : BasePlugin
     {
         var menu = new ChatMenu("\x08--[ \x0CVIP MENU \x08]--");
         menu.AddMenuOption("Health", (player, option) =>
-                TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsHealth ^= true, option.Text));
+            TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsHealth ^= true, option.Text));
         menu.AddMenuOption("Armor", (player, option) =>
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsArmor ^= true, option.Text));
         menu.AddMenuOption("Gravity", (player, _) => AdjustPlayerGravity(player));
@@ -229,9 +236,9 @@ public class LiteVip : BasePlugin
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsHealthshot ^= true, option.Text));
         menu.AddMenuOption("Decoy Teleport", (player, option) =>
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsDecoy ^= true, option.Text));
-        menu.AddMenuOption("Jumps",(player, option) =>
+        menu.AddMenuOption("Jumps", (player, option) =>
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsJumps ^= true, option.Text));
-            AddCommand("css_vip", "command that opens the VIP MENU", (player, _) =>
+        AddCommand("css_vip", "command that opens the VIP MENU", (player, _) =>
         {
             if (player == null) return;
 
@@ -288,9 +295,15 @@ public class LiteVip : BasePlugin
 
             var split = user.SmokeColor.Split(" ");
 
-            smokeGrenade.SmokeColor.X = float.Parse(split[0]);
-            smokeGrenade.SmokeColor.Y = float.Parse(split[1]);
-            smokeGrenade.SmokeColor.Z = float.Parse(split[2]);
+            smokeGrenade.SmokeColor.X = user.SmokeColor == "random"
+                ? Random.Shared.NextSingle() * 255.0f
+                : float.Parse(split[0]);
+            smokeGrenade.SmokeColor.Y = user.SmokeColor == "random"
+                ? Random.Shared.NextSingle() * 255.0f
+                : float.Parse(split[1]);
+            smokeGrenade.SmokeColor.Z = user.SmokeColor == "random"
+                ? Random.Shared.NextSingle() * 255.0f
+                : float.Parse(split[2]);
         });
     }
 
