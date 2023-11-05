@@ -1,7 +1,7 @@
 # cs2-LiteVIP
 plugin for cs2 with basic functions VIP
 
-<img src="https://github.com/partiusfabaa/cs2-LiteVIP/assets/96542489/a0c9073e-954e-49fc-9ecf-7da0a469eb74" width="150" height="150">
+<img src="https://github.com/partiusfabaa/cs2-LiteVIP/assets/96542489/e99c9cb4-b456-4947-bd6d-d2efd7fc98b0" width="194" height="293">
 
 # Installation
 1. Install [CounterStrike Sharp](https://github.com/roflmuffin/CounterStrikeSharp) and [Metamod:Source](https://www.sourcemm.net/downloads.php/?branch=master)
