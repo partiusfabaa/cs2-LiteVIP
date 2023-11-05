@@ -132,7 +132,7 @@ public class LiteVip : BasePlugin
         if (controller == null)
             Console.WriteLine(msg);
         else
-            controller.PrintToChat(msg);
+            controller.PrintToChat(msg); 
     }
 
     private HookResult EventPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
