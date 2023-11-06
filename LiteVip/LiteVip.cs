@@ -1,13 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Menu;
+using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
 
 namespace LiteVip;
@@ -51,8 +55,8 @@ public class LiteVip : BasePlugin
             {
                 IsGravity = false, IsHealth = true, IsArmor = true,
                 IsHealthshot = true, IsDecoy = true, IsJumps = true,
-                IsItems = true, DecoyCount = 0, JumpsCount = 0,
-                LastButtons = 0, LastFlags = 0
+                IsItems = true, IsRainbow = true, DecoyCount = 0, 
+                JumpsCount = 0, LastButtons = 0, LastFlags = 0
             };
         });
 
@@ -193,9 +197,26 @@ public class LiteVip : BasePlugin
             if (moneyServices != null)
                 moneyServices.Account = user.Money;
 
+        if (user.RainbowModel)
+        {
+            var offset = Schema.GetSchemaOffset("CBaseModelEntity", "m_clrRender");
+            AddTimer(2.0f, () => Timer_SetRainbowModel(playerPawnValue, offset), TimerFlags.REPEAT);
+        }
+
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"Player {handle.PlayerName} has gained Health: {user.Health} | Armor: {user.Armor}");
         Console.ResetColor();
+    }
+
+    private void Timer_SetRainbowModel(CCSPlayerPawn pawn, short offset)
+    {
+        Marshal.WriteInt32(pawn.Handle + offset, 
+            Color.FromArgb(
+                255, 
+                Random.Shared.Next(0, 255), 
+                Random.Shared.Next(0, 255), 
+                Random.Shared.Next(0, 255)).ToArgb()
+            );
     }
 
     public static void OnTick(CCSPlayerController clientId)
@@ -376,6 +397,7 @@ public class UserSettings
     public bool IsDecoy { get; set; }
     public bool IsJumps { get; set; }
     public bool IsItems { get; set; }
+    public bool IsRainbow { get; set; }
     public int DecoyCount { get; set; }
     public int JumpsCount { get; set; }
     public PlayerButtons LastButtons { get; set; }
@@ -398,6 +420,7 @@ public class VipUser
     public required string SmokeColor { get; init; }
     public int Healthshot { get; init; }
     public int JumpsCount { get; init; }
+    public bool RainbowModel { get; init; }
     public List<string> Items { get; init; } = null!;
     public Decoy DecoySettings { get; init; } = null!;
 }
