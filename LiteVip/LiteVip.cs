@@ -381,6 +381,7 @@ public class LiteVip : BasePlugin
                         SmokeColor = "255 255 255",
                         Healthshot = 1,
                         JumpsCount = 2,
+                        RainbowModel = true,
                         Items = new List<string> { "weapon_molotov", "weapon_ak47" },
                         DecoySettings = new Decoy
                             { DecoyTeleport = true, DecoyCountInOneRound = 1, DecoyCountToBeIssued = 1 }
