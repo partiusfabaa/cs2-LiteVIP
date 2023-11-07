@@ -20,13 +20,15 @@ public class LiteVip : BasePlugin
 {
     public override string ModuleAuthor => "by thesamefabius";
     public override string ModuleName => "Lite VIP";
-    public override string ModuleVersion => "v1.0.4";
+    public override string ModuleVersion => "v1.0.5";
 
     private static Config _config = null!;
+    private short _offsetRender;
     public static readonly UserSettings?[] Users = new UserSettings?[Server.MaxPlayers];
 
     public override void Load(bool hotReload)
     {
+        _offsetRender = Schema.GetSchemaOffset("CBaseModelEntity", "m_clrRender");
         _config = LoadConfig();
         RegisterEventHandler<EventDecoyFiring>(EventDecoyFiring);
         RegisterEventHandler<EventPlayerSpawn>(EventPlayerSpawn);
@@ -55,7 +57,7 @@ public class LiteVip : BasePlugin
             {
                 IsGravity = false, IsHealth = true, IsArmor = true,
                 IsHealthshot = true, IsDecoy = true, IsJumps = true,
-                IsItems = true, IsRainbow = true, DecoyCount = 0, 
+                IsItems = true, IsRainbow = true, DecoyCount = 0,
                 JumpsCount = 0, LastButtons = 0, LastFlags = 0
             };
         });
@@ -199,8 +201,14 @@ public class LiteVip : BasePlugin
 
         if (user.RainbowModel)
         {
-            var offset = Schema.GetSchemaOffset("CBaseModelEntity", "m_clrRender");
-            AddTimer(2.0f, () => Timer_SetRainbowModel(playerPawnValue, offset), TimerFlags.REPEAT);
+            if (userSettings.IsRainbow)
+            {
+                userSettings.RainbowTimer?.Kill();
+                userSettings.RainbowTimer = AddTimer(2.0f,
+                    () => Timer_SetRainbowModel(playerPawnValue, _offsetRender, Random.Shared.Next(0, 255),
+                        Random.Shared.Next(0, 255), Random.Shared.Next(0, 255)),
+                    TimerFlags.REPEAT);
+            }
         }
 
         Console.ForegroundColor = ConsoleColor.Red;
@@ -208,18 +216,12 @@ public class LiteVip : BasePlugin
         Console.ResetColor();
     }
 
-    private void Timer_SetRainbowModel(CCSPlayerPawn pawn, short offset)
+    private void Timer_SetRainbowModel(CCSPlayerPawn pawn, short offset, int r = 255, int g = 255, int b = 255)
     {
-        Marshal.WriteInt32(pawn.Handle + offset, 
-            Color.FromArgb(
-                255, 
-                Random.Shared.Next(0, 255), 
-                Random.Shared.Next(0, 255), 
-                Random.Shared.Next(0, 255)).ToArgb()
-            );
+        Marshal.WriteInt32(pawn.Handle + offset, Color.FromArgb(255, r, g, b).ToArgb());
     }
 
-    public static void OnTick(CCSPlayerController clientId)
+    private static void OnTick(CCSPlayerController clientId)
     {
         if (!clientId.PawnIsAlive)
             return;
@@ -271,6 +273,16 @@ public class LiteVip : BasePlugin
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsJumps ^= true, option.Text));
         menu.AddMenuOption("Items", (player, option) =>
             TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsItems ^= true, option.Text));
+        menu.AddMenuOption("Rainbow Model", (player, option) =>
+        {
+            var entityIndex = player.EntityIndex!.Value.Value;
+
+            if (Users[entityIndex]!.IsRainbow)
+                Timer_SetRainbowModel(player.PlayerPawn.Value, _offsetRender);
+            Users[entityIndex]!.RainbowTimer?.Kill();
+            
+            TogglePlayerFunction(player, Users[entityIndex]!.IsRainbow ^= true, option.Text);
+        });
         AddCommand("css_vip", "command that opens the VIP MENU", (player, _) =>
         {
             if (player == null) return;
@@ -402,6 +414,7 @@ public class UserSettings
     public int JumpsCount { get; set; }
     public PlayerButtons LastButtons { get; set; }
     public PlayerFlags LastFlags { get; set; }
+    public Timer? RainbowTimer { get; set; }
 }
 
 public class Config
