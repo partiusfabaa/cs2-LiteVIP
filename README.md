@@ -24,6 +24,7 @@ The config is created automatically in the same place where the dll is located
       "SmokeColor": "255 11 22",//color R G B is spelled with a space.
       "Healthshot": 1,		//syringe count at revival
       "JumpsCount": 2,		//number of additional jumps
+      "RainbowModel": true, 	//true - on, false - off
       "Items": "weapon_molotov;weapon_ak47", //items given out at revival. Write via ';'. If you don't need anything, leave the field blank
       "DecoySettings": {	
         "DecoyTeleport": true,	  //Is the teleportation grenade enabled? true - yes, false - no
