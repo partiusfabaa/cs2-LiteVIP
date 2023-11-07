@@ -18,7 +18,7 @@ namespace LiteVip;
 
 public class LiteVip : BasePlugin
 {
-    public override string ModuleAuthor => "by thesamefabius";
+    public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "Lite VIP";
     public override string ModuleVersion => "v1.0.5";
 
