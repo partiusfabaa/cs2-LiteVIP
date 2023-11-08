@@ -221,17 +221,17 @@ public class LiteVip : BasePlugin
         Marshal.WriteInt32(pawn.Handle + offset, Color.FromArgb(255, r, g, b).ToArgb());
     }
 
-    private static void OnTick(CCSPlayerController clientId)
+    private static void OnTick(CCSPlayerController player)
     {
-        if (!clientId.PawnIsAlive)
+        if (!player.PawnIsAlive)
             return;
 
-        if (!_config.Users.TryGetValue(clientId.SteamID.ToString(), out var user)) return;
+        if (!_config.Users.TryGetValue(player.SteamID.ToString(), out var user)) return;
 
-        var client = clientId.EntityIndex!.Value.Value;
-        var playerPawn = clientId.PlayerPawn.Value;
+        var client = player.EntityIndex!.Value.Value;
+        var playerPawn = player.PlayerPawn.Value;
         var flags = (PlayerFlags)playerPawn.Flags;
-        var buttons = clientId.Pawn.Value.MovementServices!.ButtonState.Value;
+        var buttons = player.Buttons;
 
         if (!Users[client]!.IsJumps) return;
 
