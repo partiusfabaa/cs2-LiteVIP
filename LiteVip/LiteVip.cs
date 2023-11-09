@@ -23,12 +23,10 @@ public class LiteVip : BasePlugin
     public override string ModuleVersion => "v1.0.5";
 
     private static Config _config = null!;
-    private short _offsetRender;
-    public static readonly UserSettings?[] Users = new UserSettings?[Server.MaxPlayers];
+    private static readonly UserSettings?[] Users = new UserSettings?[Server.MaxPlayers];
 
     public override void Load(bool hotReload)
     {
-        _offsetRender = Schema.GetSchemaOffset("CBaseModelEntity", "m_clrRender");
         _config = LoadConfig();
         RegisterEventHandler<EventDecoyFiring>(EventDecoyFiring);
         RegisterEventHandler<EventPlayerSpawn>(EventPlayerSpawn);
@@ -36,7 +34,7 @@ public class LiteVip : BasePlugin
 
         RegisterListener<Listeners.OnTick>(() =>
         {
-            for (var i = 1; i < Server.MaxPlayers; i++)
+            for (var i = 1; i < 64; i++)
             {
                 var entity = NativeAPI.GetEntityFromIndex(i);
 
@@ -205,7 +203,7 @@ public class LiteVip : BasePlugin
             {
                 userSettings.RainbowTimer?.Kill();
                 userSettings.RainbowTimer = AddTimer(2.0f,
-                    () => Timer_SetRainbowModel(playerPawnValue, _offsetRender, Random.Shared.Next(0, 255),
+                    () => Timer_SetRainbowModel(playerPawnValue, Random.Shared.Next(0, 255),
                         Random.Shared.Next(0, 255), Random.Shared.Next(0, 255)),
                     TimerFlags.REPEAT);
             }
@@ -216,9 +214,9 @@ public class LiteVip : BasePlugin
         Console.ResetColor();
     }
 
-    private void Timer_SetRainbowModel(CCSPlayerPawn pawn, short offset, int r = 255, int g = 255, int b = 255)
+    private void Timer_SetRainbowModel(CCSPlayerPawn pawn, int r = 255, int g = 255, int b = 255)
     {
-        Marshal.WriteInt32(pawn.Handle + offset, Color.FromArgb(255, r, g, b).ToArgb());
+        pawn.Render = Color.FromArgb(255, r, g, b);
     }
 
     private static void OnTick(CCSPlayerController player)
@@ -278,7 +276,7 @@ public class LiteVip : BasePlugin
             var entityIndex = player.EntityIndex!.Value.Value;
 
             if (Users[entityIndex]!.IsRainbow)
-                Timer_SetRainbowModel(player.PlayerPawn.Value, _offsetRender);
+                Timer_SetRainbowModel(player.PlayerPawn.Value);
             Users[entityIndex]!.RainbowTimer?.Kill();
             
             TogglePlayerFunction(player, Users[entityIndex]!.IsRainbow ^= true, option.Text);
