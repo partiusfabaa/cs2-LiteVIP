@@ -3,16 +3,19 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
-using CounterStrikeSharp.API.Modules.Memory;
+using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
+using Dapper;
+using MySqlConnector;
 
 namespace LiteVip;
 
@@ -22,15 +25,55 @@ public class LiteVip : BasePlugin
     public override string ModuleName => "Lite VIP";
     public override string ModuleVersion => "v1.0.5";
 
+    private string _dbConnectionString = string.Empty;
+
+    private static readonly User?[] Users = new User[65];
+
     private static Config _config = null!;
-    private static readonly UserSettings?[] Users = new UserSettings?[Server.MaxPlayers];
+
+    //private short _offsetRender;
+    private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers];
 
     public override void Load(bool hotReload)
     {
+        _dbConnectionString = BuildConnectionString();
+        Task.Run(() => CreateTable(_dbConnectionString));
+        Task.Run(() => CreateKeysTable(_dbConnectionString));
+        Task.Run(() => CreateVipTestTable(_dbConnectionString));
+        //_offsetRender = Schema.GetSchemaOffset("CBaseModelEntity", "m_clrRender");
         _config = LoadConfig();
+
         RegisterEventHandler<EventDecoyFiring>(EventDecoyFiring);
         RegisterEventHandler<EventPlayerSpawn>(EventPlayerSpawn);
         RegisterEventHandler<EventRoundStart>(EventRoundStart);
+
+        RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
+        RegisterListener<Listeners.OnClientConnected>((slot) =>
+        {
+            UsersSettings[slot + 1] = new UserSettings
+            {
+                IsGravity = false, IsHealth = true, IsArmor = true,
+                IsHealthshot = true, IsDecoy = true, IsJumps = true,
+                IsItems = true, IsRainbow = true, DecoyCount = 0,
+                JumpsCount = 0, LastButtons = 0, LastFlags = 0
+            };
+        });
+
+        RegisterListener<Listeners.OnClientAuthorized>((slot, steamId) =>
+        {
+            var player = Utilities.GetPlayerFromSlot(slot);
+
+            Task.Run(() => OnClientAuthorizedAsync(slot, steamId));
+
+            var user = Users[slot + 1];
+            if (user == null) return;
+
+            var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
+            var timeRemainingFormatted =
+                $"{timeRemaining.Days}d {timeRemaining.Hours:D2}:{timeRemaining.Minutes:D2}:{timeRemaining.Seconds:D2}";
+            PrintToChat(player,
+                $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08', Expires in: \x06{timeRemainingFormatted}.");
+        });
 
         RegisterListener<Listeners.OnTick>(() =>
         {
@@ -48,26 +91,264 @@ public class LiteVip : BasePlugin
             }
         });
 
-        RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
-        RegisterListener<Listeners.OnClientConnected>(playerSlot =>
+        RegisterListener<Listeners.OnClientDisconnectPost>(slot =>
         {
-            Users[playerSlot + 1] = new UserSettings
-            {
-                IsGravity = false, IsHealth = true, IsArmor = true,
-                IsHealthshot = true, IsDecoy = true, IsJumps = true,
-                IsItems = true, IsRainbow = true, DecoyCount = 0,
-                JumpsCount = 0, LastButtons = 0, LastFlags = 0
-            };
+            Users[slot + 1] = null;
+            UsersSettings[slot + 1] = null;
         });
 
-        RegisterListener<Listeners.OnClientDisconnectPost>(clientIndex => { Users[clientIndex + 1] = null; });
-
         CreateMenu();
+
+        AddTimer(300, () => Task.Run(RemoveExpiredUsers), TimerFlags.REPEAT);
+    }
+
+    private async Task OnClientAuthorizedAsync(int playerSlot, SteamID steamId)
+    {
+        var msg = await RemoveExpiredUsers();
+        PrintToServer(msg, ConsoleColor.DarkGreen);
+
+        var user = await GetUserFromDb(steamId);
+
+        if (user == null) return;
+
+        Users[playerSlot + 1] = new User
+        {
+            SteamId = user.SteamId,
+            VipGroup = user.VipGroup,
+            StartVipTime = user.StartVipTime,
+            EndVipTime = user.EndVipTime
+        };
+    }
+
+    [ConsoleCommand("css_vip_createkey")]
+    public void OnCommandCreateKey(CCSPlayerController? controller, CommandInfo command)
+    {
+        if (controller != null) return;
+
+        var splitCmdArgs = ParseCommandArguments(command.ArgString);
+
+        if (splitCmdArgs.Length is > 2 or < 2)
+        {
+            PrintToServer("Usage: css_vip_createkey <vipgroup> <time_seconds>", ConsoleColor.Red);
+            return;
+        }
+
+        var vipGroup = ExtractValueInQuotes(splitCmdArgs[0]);
+        var time = ExtractValueInQuotes(splitCmdArgs[1]);
+
+        if (!_config.Groups.ContainsKey(vipGroup))
+        {
+            PrintToServer("This VIP group was not found!", ConsoleColor.DarkRed);
+            return;
+        }
+
+        var key = $"key-{DateTime.Now.ToString("yyyyMMddHHmmssfff") + new Random().Next(100, 999)}";
+
+        var msg = Task.Run(() => AddKeyToDb(key, vipGroup, int.Parse(time))).Result;
+
+        PrintToServer(msg, ConsoleColor.DarkGreen);
+    }
+
+    [ConsoleCommand("css_vip_adduser")]
+    public void OnCmdAddUser(CCSPlayerController? controller, CommandInfo command)
+    {
+        if (controller != null) return;
+
+        var splitCmdArgs = ParseCommandArguments(command.ArgString);
+
+        if (splitCmdArgs.Length is > 3 or < 3)
+        {
+            PrintToServer("Usage: css_vip_adduser <steamid> <vipgroup> <time_second>", ConsoleColor.Red);
+            return;
+        }
+
+        var steamId = ExtractValueInQuotes(splitCmdArgs[0]);
+        var vipGroup = ExtractValueInQuotes(splitCmdArgs[1]);
+        var endVipTime = Convert.ToInt32(ExtractValueInQuotes(splitCmdArgs[2]));
+
+        if (!_config.Groups.ContainsKey(vipGroup))
+        {
+            PrintToServer("This VIP group was not found!", ConsoleColor.DarkRed);
+            return;
+        }
+
+        var msg = Task.Run(() => AddUserToDb(new User
+        {
+            SteamId = steamId,
+            VipGroup = vipGroup,
+            StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
+            EndVipTime = endVipTime == 0 ? 0 : DateTime.UtcNow.AddSeconds(endVipTime).GetUnixEpoch()
+        })).Result;
+
+        PrintToServer(msg, ConsoleColor.Green);
+    }
+
+    [ConsoleCommand("css_vip_deleteuser")]
+    public void OnCmdDeleteVipUser(CCSPlayerController? controller, CommandInfo command)
+    {
+        if (controller != null) return;
+
+        if (command.ArgCount is < 3 or > 3)
+        {
+            ReplyToCommand(controller, "Using: css_vip_deleteuser <SteamId>");
+            return;
+        }
+
+        var splitCmdArgs = ParseCommandArguments(command.ArgString);
+
+        var steamId = ExtractValueInQuotes(splitCmdArgs[0]);
+
+        var msg = Task.Run(() => RemoveUserFromDb(steamId)).Result;
+
+        PrintToServer(msg, ConsoleColor.Red);
+    }
+
+    [ConsoleCommand("css_vip_key")]
+    public void OnCommandKey(CCSPlayerController? controller, CommandInfo command)
+    {
+        if (controller == null) return;
+
+        if (IsUserVip(controller.EntityIndex!.Value.Value))
+        {
+            PrintToChat(controller, "You already have VIP privileges.");
+            return;
+        }
+
+        if (command.ArgCount is < 2 or > 2)
+        {
+            ReplyToCommand(controller, "Using: css_vip_key <key>");
+            return;
+        }
+
+        var key = ParseCommandArguments(command.ArgString);
+
+        var vipGroupAndTime = Task.Run(() => GetVipGroupAndTimeByKey(key[0])).Result;
+
+        if (!string.IsNullOrEmpty(vipGroupAndTime.VipGroup))
+        {
+            var steamId = new SteamID(controller.SteamID).SteamId2;
+
+            Task.Run(() => AddUserToDb(new User
+            {
+                SteamId = steamId,
+                VipGroup = vipGroupAndTime.VipGroup,
+                StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
+                EndVipTime = vipGroupAndTime.Time == 0
+                    ? 0
+                    : DateTime.UtcNow.AddSeconds(vipGroupAndTime.Time).GetUnixEpoch()
+            }));
+            Task.Run(() => RemoveKeyFromDb(key[0]));
+
+            Users[controller.EntityIndex!.Value.Value] = new User
+            {
+                SteamId = steamId,
+                VipGroup = vipGroupAndTime.VipGroup,
+                StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
+                EndVipTime = vipGroupAndTime.Time == 0
+                    ? 0
+                    : DateTime.UtcNow.AddSeconds(vipGroupAndTime.Time).GetUnixEpoch()
+            };
+
+            PrintToChat(controller,
+                $"Key '{key[0]}' has been successfully activated! You are now a member of the VIP group '{vipGroupAndTime.VipGroup}'");
+        }
+        else
+            PrintToChat(controller, $"Failed to activate key '{key[0]}'. Please check if the key is valid.");
+    }
+
+    [ConsoleCommand("css_viptest")]
+    public void OnCommandVipTest(CCSPlayerController? controller, CommandInfo command)
+    {
+        if (controller == null) return;
+
+        var vipTest = new VipTest(_dbConnectionString);
+
+        var vipTestSettings = _config.VipTestSettings;
+        var entityIndex = controller.EntityIndex!.Value.Value;
+
+        if (!vipTestSettings.VipTestEnabled) return;
+
+        var steamId = new SteamID(controller.SteamID).SteamId2;
+
+        if (IsUserVip(entityIndex))
+        {
+            PrintToChat(controller, "You already have VIP privileges.");
+            return;
+        }
+
+        var vipTestCount = Task.Run(() => vipTest.GetVipTestCount(steamId)).Result;
+
+        if (vipTestCount >= vipTestSettings.VipTestCount)
+        {
+            PrintToChat(controller, "You can no longer take the VIP Test");
+            return;
+        }
+
+        var endTime = DateTime.UtcNow.AddSeconds(vipTestSettings.VipTestTime).GetUnixEpoch();
+        Task.Run(() => AddUserToDb(new User
+        {
+            SteamId = steamId,
+            VipGroup = vipTestSettings.VipTestGroup,
+            StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
+            EndVipTime = endTime
+        }));
+
+        Task.Run(() => AddUserOrUpdateVipTestAsync(steamId, endTime, vipTest));
+
+        Users[controller.EntityIndex!.Value.Value] = new User
+        {
+            SteamId = steamId,
+            VipGroup = vipTestSettings.VipTestGroup,
+            StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
+            EndVipTime = endTime
+        };
+
+        PrintToChat(controller,
+            $"You have successfully received the 'VIP Test'! Ends in {DateTimeOffset.FromUnixTimeSeconds(endTime):hh:mm:ss}");
+    }
+
+    private async Task AddUserOrUpdateVipTestAsync(string steamId, int endTime, VipTest vipTest)
+    {
+        var userInVipTest = await vipTest.IsUserInVipTest(steamId);
+
+        if (userInVipTest)
+        {
+            await vipTest.UpdateUserVipTestCount(steamId, 1);
+            return;
+        }
+
+        await vipTest.AddUserToVipTest(steamId, 1, endTime);
+    }
+
+    [ConsoleCommand("css_vip_reload")]
+    public void OnCommandReloadConfig(CCSPlayerController? controller, CommandInfo command)
+    {
+        if (controller != null)
+            if (!_config.Admins.Contains(controller.SteamID))
+            {
+                PrintToChat(controller, "\x08[ \x0CLITE-VIP \x08] you do not have access to this command");
+                return;
+            }
+
+        _config = LoadConfig();
+
+        const string msg = "configuration successfully rebooted!";
+
+        ReplyToCommand(controller, msg);
+    }
+
+    private string[] ParseCommandArguments(string argString)
+    {
+        var parse = Regex.Matches(argString, @"[\""].+?[\""]|[^ ]+")
+            .Select(m => m.Value.Trim('"'))
+            .ToArray();
+
+        return parse;
     }
 
     private HookResult EventRoundStart(EventRoundStart @event, GameEventInfo info)
     {
-        foreach (var userSettings in Users)
+        foreach (var userSettings in UsersSettings)
         {
             if (userSettings != null)
                 userSettings.DecoyCount = 0;
@@ -83,18 +364,21 @@ public class LiteVip : BasePlugin
         var controller = @event.Userid;
         var entityIndex = controller.EntityIndex!.Value.Value;
 
-        if (!_config.Users.TryGetValue(controller.SteamID.ToString(), out var user)) return HookResult.Continue;
+        if (!_config.Groups.TryGetValue(Users[controller.EntityIndex!.Value.Value]!.VipGroup, out var group))
+            return HookResult.Continue;
 
-        if (!user.DecoySettings.DecoyTeleport) return HookResult.Continue;
+        if (group.DecoySettings == null) return HookResult.Continue;
+        if (!group.DecoySettings.DecoyTeleport) return HookResult.Continue;
 
-        if (!Users[entityIndex]!.IsDecoy) return HookResult.Continue;
+        if (!UsersSettings[entityIndex]!.IsDecoy) return HookResult.Continue;
 
         var pDecoyFiring = @event;
         var bodyComponent = @event.Userid.PlayerPawn.Value.CBodyComponent?.SceneNode;
 
         if (bodyComponent == null) return HookResult.Continue;
 
-        if (Users[entityIndex]!.DecoyCount >= user.DecoySettings.DecoyCountInOneRound) return HookResult.Continue;
+        if (UsersSettings[entityIndex]!.DecoyCount >= group.DecoySettings.DecoyCountInOneRound)
+            return HookResult.Continue;
 
         bodyComponent.AbsOrigin.X = pDecoyFiring.X;
         bodyComponent.AbsOrigin.Y = pDecoyFiring.Y;
@@ -106,29 +390,9 @@ public class LiteVip : BasePlugin
 
         new CBaseCSGrenadeProjectile(decoyIndex).Remove();
 
-        Users[entityIndex]!.DecoyCount++;
+        UsersSettings[entityIndex]!.DecoyCount++;
 
         return HookResult.Continue;
-    }
-
-    [ConsoleCommand("css_vip_reload")]
-    public void OnCommandReloadConfig(CCSPlayerController? controller, CommandInfo command)
-    {
-        if (controller != null)
-            if (!_config.Admins.Contains(controller.SteamID))
-            {
-                controller.PrintToChat("\x08[ \x0CLITE-VIP \x08] you do not have access to this command");
-                return;
-            }
-
-        _config = LoadConfig();
-
-        const string msg = "\x08[ \x0CLITE-VIP \x08] configuration successfully rebooted!";
-
-        if (controller == null)
-            Console.WriteLine(msg);
-        else
-            controller.PrintToChat(msg);
     }
 
     private HookResult EventPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
@@ -142,81 +406,97 @@ public class LiteVip : BasePlugin
         return HookResult.Continue;
     }
 
-    private void Timer_Give(CCSPlayerController handle)
+    private void Timer_Give(CCSPlayerController controller)
     {
-        if (handle.SteamID == 0) return;
-        var steamId = handle.SteamID.ToString();
-        if (!_config.Users.TryGetValue(steamId, out var user)) return;
+        if (controller.SteamID == 0) return;
 
-        var userSettings = Users[handle.EntityIndex!.Value.Value]!;
+        var user = Users[controller.EntityIndex!.Value.Value];
 
-        var playerPawnValue = handle.PlayerPawn.Value;
-        var moneyServices = handle.InGameMoneyServices;
+        if (user == null) return;
+        if (!IsUserInDatabase(new SteamID(controller.SteamID).SteamId2, user.VipGroup)) return;
+        if (!_config.Groups.TryGetValue(user.VipGroup, out var group)) return;
 
-        if (userSettings.IsHealth) playerPawnValue.Health = user.Health;
-        if (userSettings.IsArmor) playerPawnValue.ArmorValue = user.Armor;
+        var userSettings = UsersSettings[controller.EntityIndex!.Value.Value]!;
 
-        if (userSettings.IsGravity) playerPawnValue.GravityScale = user.Gravity;
+        var playerPawnValue = controller.PlayerPawn.Value;
+        var moneyServices = controller.InGameMoneyServices;
+
+        if (group.Health != null)
+            if (userSettings.IsHealth)
+                playerPawnValue.Health = group.Health.Value;
+
+        if (group.Armor != null)
+            if (userSettings.IsArmor)
+                playerPawnValue.ArmorValue = group.Armor.Value;
+
+        if (group.Gravity != null)
+            if (userSettings.IsGravity)
+                playerPawnValue.GravityScale = group.Gravity.Value;
 
         if (playerPawnValue.ItemServices != null)
         {
-            if (user.DecoySettings.DecoyTeleport)
+            if (group.DecoySettings is { DecoyTeleport: true })
             {
                 if (userSettings.IsDecoy)
                 {
-                    if (user.DecoySettings.DecoyCountToBeIssued > 0)
+                    if (group.DecoySettings.DecoyCountToBeIssued > 0)
                     {
-                        for (var i = 0; i < user.DecoySettings.DecoyCountToBeIssued; i++)
-                            GiveItem(handle, "weapon_decoy");
+                        for (var i = 0; i < group.DecoySettings.DecoyCountToBeIssued; i++)
+                            GiveItem(controller, "weapon_decoy");
                     }
                 }
             }
 
-            if (userSettings.IsHealthshot)
+            if (group.Healthshot != null)
             {
-                if (user.Healthshot > 0)
+                if (userSettings.IsHealthshot)
                 {
-                    for (var i = 0; i < user.Healthshot; i++)
-                        GiveItem(handle, "weapon_healthshot");
+                    if (group.Healthshot.Value > 0)
+                    {
+                        for (var i = 0; i < group.Healthshot; i++)
+                            GiveItem(controller, "weapon_healthshot");
+                    }
+                    else if (group.Healthshot == 1)
+                        GiveItem(controller, "weapon_healthshot");
                 }
-                else if (user.Healthshot == 1)
-                    GiveItem(handle, "weapon_healthshot");
             }
 
-            if (userSettings.IsItems)
+            if (group.Items != null)
             {
-                if (user.Items.Count > 0)
+                if (userSettings.IsItems)
                 {
-                    foreach (var item in user.Items)
-                        GiveItem(handle, item);
+                    if (group.Items.Count > 0)
+                    {
+                        foreach (var item in group.Items)
+                            GiveItem(controller, item);
+                    }
                 }
             }
         }
 
-        if (user.Money != -1)
-            if (moneyServices != null)
-                moneyServices.Account = user.Money;
+        if (group.Money != null)
+            if (group.Money.Value != -1)
+                if (moneyServices != null)
+                    moneyServices.Account = group.Money.Value;
 
-        if (user.RainbowModel)
+        if (group.RainbowModel != null)
         {
-            if (userSettings.IsRainbow)
+            if (group.RainbowModel.Value)
             {
-                userSettings.RainbowTimer?.Kill();
-                userSettings.RainbowTimer = AddTimer(2.0f,
-                    () => Timer_SetRainbowModel(playerPawnValue, Random.Shared.Next(0, 255),
-                        Random.Shared.Next(0, 255), Random.Shared.Next(0, 255)),
-                    TimerFlags.REPEAT);
+                if (userSettings.IsRainbow)
+                {
+                    userSettings.RainbowTimer?.Kill();
+                    userSettings.RainbowTimer = AddTimer(1.4f,
+                        () => Timer_SetRainbowModel(playerPawnValue, Random.Shared.Next(0, 255),
+                            Random.Shared.Next(0, 255), Random.Shared.Next(0, 255)),
+                        TimerFlags.REPEAT);
+                }
             }
         }
 
         Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"Player {handle.PlayerName} has gained Health: {user.Health} | Armor: {user.Armor}");
+        Console.WriteLine($"Player {controller.PlayerName} has gained Health: {group.Health} | Armor: {group.Armor}");
         Console.ResetColor();
-    }
-
-    private void Timer_SetRainbowModel(CCSPlayerPawn pawn, int r = 255, int g = 255, int b = 255)
-    {
-        pawn.Render = Color.FromArgb(255, r, g, b);
     }
 
     private static void OnTick(CCSPlayerController player)
@@ -224,104 +504,123 @@ public class LiteVip : BasePlugin
         if (!player.PawnIsAlive)
             return;
 
-        if (!_config.Users.TryGetValue(player.SteamID.ToString(), out var user)) return;
+        var user = Users[player.EntityIndex!.Value.Value];
+        if (user == null) return;
+
+        if (!_config.Groups.TryGetValue(user.VipGroup, out var group)) return;
 
         var client = player.EntityIndex!.Value.Value;
         var playerPawn = player.PlayerPawn.Value;
         var flags = (PlayerFlags)playerPawn.Flags;
         var buttons = player.Buttons;
 
-        if (!Users[client]!.IsJumps) return;
+        if (!UsersSettings[client]!.IsJumps) return;
 
-        if ((Users[client]!.LastFlags & PlayerFlags.FL_ONGROUND) != 0 && (flags & PlayerFlags.FL_ONGROUND) == 0 &&
-            (Users[client]!.LastButtons & PlayerButtons.Jump) == 0 && (buttons & PlayerButtons.Jump) != 0)
-            Users[client]!.JumpsCount++;
+        if ((UsersSettings[client]!.LastFlags & PlayerFlags.FL_ONGROUND) != 0 &&
+            (flags & PlayerFlags.FL_ONGROUND) == 0 &&
+            (UsersSettings[client]!.LastButtons & PlayerButtons.Jump) == 0 && (buttons & PlayerButtons.Jump) != 0)
+            UsersSettings[client]!.JumpsCount++;
         else if ((flags & PlayerFlags.FL_ONGROUND) != 0)
-            Users[client]!.JumpsCount = 1;
-        else if ((Users[client]!.LastButtons & PlayerButtons.Jump) == 0 && (buttons & PlayerButtons.Jump) != 0 &&
-                 Users[client]!.JumpsCount <= user.JumpsCount)
+            UsersSettings[client]!.JumpsCount = 0;
+        else if ((UsersSettings[client]!.LastButtons & PlayerButtons.Jump) == 0 &&
+                 (buttons & PlayerButtons.Jump) != 0 &&
+                 UsersSettings[client]!.JumpsCount < group.JumpsCount)
         {
-            Users[client]!.JumpsCount++;
+            UsersSettings[client]!.JumpsCount++;
 
             playerPawn.AbsVelocity.Z = 300;
         }
 
-        Users[client]!.LastFlags = flags;
-        Users[client]!.LastButtons = buttons;
+        UsersSettings[client]!.LastFlags = flags;
+        UsersSettings[client]!.LastButtons = buttons;
     }
 
-    private void GiveItem(CCSPlayerController handle, string item)
+
+    private void Timer_SetRainbowModel(CCSPlayerPawn pawn, int r = 255, int g = 255, int b = 255)
     {
-        handle.GiveNamedItem(item);
+        pawn.Render = Color.FromArgb(255, r, g, b);
     }
 
     private void CreateMenu()
     {
         var menu = new ChatMenu("\x08--[ \x0CVIP MENU \x08]--");
         menu.AddMenuOption("Health", (player, option) =>
-            TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsHealth ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsHealth ^= true,
+                option.Text));
         menu.AddMenuOption("Armor", (player, option) =>
-            TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsArmor ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsArmor ^= true, option.Text));
         menu.AddMenuOption("Gravity", (player, _) => AdjustPlayerGravity(player));
         menu.AddMenuOption("Healthshot", (player, option) =>
-            TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsHealthshot ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsHealthshot ^= true,
+                option.Text));
         menu.AddMenuOption("Decoy Teleport", (player, option) =>
-            TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsDecoy ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsDecoy ^= true, option.Text));
         menu.AddMenuOption("Jumps", (player, option) =>
-            TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsJumps ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsJumps ^= true, option.Text));
         menu.AddMenuOption("Items", (player, option) =>
-            TogglePlayerFunction(player, Users[player.EntityIndex!.Value.Value]!.IsItems ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsItems ^= true, option.Text));
         menu.AddMenuOption("Rainbow Model", (player, option) =>
         {
             var entityIndex = player.EntityIndex!.Value.Value;
 
-            if (Users[entityIndex]!.IsRainbow)
+            if (UsersSettings[entityIndex]!.IsRainbow)
                 Timer_SetRainbowModel(player.PlayerPawn.Value);
-            Users[entityIndex]!.RainbowTimer?.Kill();
-            
-            TogglePlayerFunction(player, Users[entityIndex]!.IsRainbow ^= true, option.Text);
+            UsersSettings[entityIndex]!.RainbowTimer?.Kill();
+
+            TogglePlayerFunction(player, UsersSettings[entityIndex]!.IsRainbow ^= true, option.Text);
         });
         AddCommand("css_vip", "command that opens the VIP MENU", (player, _) =>
         {
             if (player == null) return;
 
-            var isVip = _config.Users.ContainsKey(player.SteamID.ToString());
-            if (isVip) ChatMenus.OpenMenu(player, menu);
+            if (!IsUserVip(player.EntityIndex!.Value.Value))
+            {
+                PrintToChat(player, "You do not have access to this command!");
+                return;
+            }
+
+            ChatMenus.OpenMenu(player, menu);
         });
         AddCommand("css_vip_gravity", "command allows you to turn gravity on and off.",
             (player, _) =>
             {
                 if (player == null) return;
 
-                var isVip = _config.Users.ContainsKey(player.SteamID.ToString());
-                if (isVip) AdjustPlayerGravity(player);
+                if (!IsUserVip(player.EntityIndex!.Value.Value))
+                {
+                    PrintToChat(player, "You do not have access to this command!");
+                    return;
+                }
+                
+                AdjustPlayerGravity(player);
             });
     }
 
     private void TogglePlayerFunction(CCSPlayerController player, bool func, string name)
     {
-        player.PrintToChat(!func ? $"{name}: \x02Off" : $"{name}: \x06On");
+        PrintToChat(player, !func ? $"{name}: \x02Off" : $"{name}: \x06On");
     }
 
     private void AdjustPlayerGravity(CCSPlayerController? controller)
     {
         if (controller == null) return;
 
-        var steamId = controller.SteamID;
+        if (Users[controller.EntityIndex!.Value.Value] == null) return;
 
-        if (!_config.Users.TryGetValue(steamId.ToString(), out var user)) return;
+        if (!_config.Groups.TryGetValue(Users[controller.EntityIndex!.Value.Value]!.VipGroup, out var group)) return;
 
-        var gravity = Users[controller.EntityIndex!.Value.Value]!.IsGravity ^= true;
+        var gravity = UsersSettings[controller.EntityIndex!.Value.Value]!.IsGravity ^= true;
 
         if (!gravity)
         {
-            controller.PrintToChat("Gravity: \x02Off");
+            PrintToChat(controller, "Gravity: \x02Off");
             controller.PlayerPawn.Value.GravityScale = 1.0f;
             return;
         }
 
-        controller.PrintToChat("Gravity: \x06On");
-        controller.PlayerPawn.Value.GravityScale = user.Gravity;
+        PrintToChat(controller, "Gravity: \x06On");
+        if (group.Gravity != null)
+            controller.PlayerPawn.Value.GravityScale = group.Gravity.Value;
     }
 
     private void OnEntitySpawned(CEntityInstance entity)
@@ -333,21 +632,335 @@ public class LiteVip : BasePlugin
 
         Server.NextFrame(() =>
         {
-            if (!_config.Users.TryGetValue(smokeGrenade.Thrower.Value.Controller.Value.SteamID.ToString(),
-                    out var user)) return;
+            if (!_config.Groups.TryGetValue(
+                    Users[smokeGrenade.Thrower.Value.Controller.Value.EntityIndex!.Value.Value]!.VipGroup,
+                    out var group)) return;
 
-            var split = user.SmokeColor.Split(" ");
+            if (group.SmokeColor == null) return;
 
-            smokeGrenade.SmokeColor.X = user.SmokeColor == "random"
+            var split = group.SmokeColor.Split(" ");
+
+            smokeGrenade.SmokeColor.X = group.SmokeColor == "random"
                 ? Random.Shared.NextSingle() * 255.0f
                 : float.Parse(split[0]);
-            smokeGrenade.SmokeColor.Y = user.SmokeColor == "random"
+            smokeGrenade.SmokeColor.Y = group.SmokeColor == "random"
                 ? Random.Shared.NextSingle() * 255.0f
                 : float.Parse(split[1]);
-            smokeGrenade.SmokeColor.Z = user.SmokeColor == "random"
+            smokeGrenade.SmokeColor.Z = group.SmokeColor == "random"
                 ? Random.Shared.NextSingle() * 255.0f
                 : float.Parse(split[2]);
         });
+    }
+
+    private void GiveItem(CCSPlayerController handle, string item)
+    {
+        handle.GiveNamedItem(item);
+    }
+
+    private string BuildConnectionString()
+    {
+        var dbConfig = LoadConfig();
+
+        Console.WriteLine("Building connection string");
+        var builder = new MySqlConnectionStringBuilder
+        {
+            Database = dbConfig.Connection.Database,
+            UserID = dbConfig.Connection.User,
+            Password = dbConfig.Connection.Password,
+            Server = dbConfig.Connection.Host,
+            Port = 3306
+        };
+
+        Console.WriteLine("OK!");
+        return builder.ConnectionString;
+    }
+
+    static async Task CreateTable(string connectionString)
+    {
+        try
+        {
+            await using var dbConnection = new MySqlConnection(connectionString);
+            dbConnection.Open();
+
+            var createVipUsersTable = @"
+            CREATE TABLE IF NOT EXISTS `litevip_users` (
+                `SteamId` VARCHAR(255)  NOT NULL PRIMARY KEY,
+                `VipGroup` VARCHAR(255) NOT NULL,
+                `StartVipTime` BIGINT NOT NULL,
+                `EndVipTime` BIGINT NOT NULL
+            );";
+
+            await dbConnection.ExecuteAsync(createVipUsersTable);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+    }
+
+    static async Task CreateKeysTable(string connectionString)
+    {
+        try
+        {
+            await using var dbConnection = new MySqlConnection(connectionString);
+            dbConnection.Open();
+
+            var createKeysTable = @"
+            CREATE TABLE IF NOT EXISTS `litevip_keys` (
+                `Key` VARCHAR(255) NOT NULL PRIMARY KEY,
+                `VipGroup` VARCHAR(255) NOT NULL,
+                `Time` BIGINT NOT NULL
+            );";
+
+            await dbConnection.ExecuteAsync(createKeysTable);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+    }
+
+    static async Task CreateVipTestTable(string connectionString)
+    {
+        try
+        {
+            await using var dbConnection = new MySqlConnection(connectionString);
+            dbConnection.Open();
+
+            var createKeysTable = @"
+            CREATE TABLE IF NOT EXISTS `litevip_test` (
+                `SteamId` VARCHAR(255) NOT NULL PRIMARY KEY,
+                `Count` BIGINT NOT NULL,
+                `EndTime` BIGINT NOT NULL
+            );";
+
+            await dbConnection.ExecuteAsync(createKeysTable);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+    }
+
+    private bool IsUserInDatabase(string steamId, string vipGroup)
+    {
+        using var connection = new MySqlConnection(_dbConnectionString);
+
+        var existingUser = connection.QueryFirstOrDefault<User>(
+            "SELECT * FROM litevip_users WHERE SteamId = @SteamId AND VipGroup = @VipGroup",
+            new { SteamId = steamId, VipGroup = vipGroup });
+
+        return existingUser != null;
+    }
+
+    private async Task<User?> GetUserFromDb(SteamID steamId)
+    {
+        try
+        {
+            await using var connection = new MySqlConnection(_dbConnectionString);
+            await connection.OpenAsync();
+            var user = await connection.QueryFirstOrDefaultAsync<User>(
+                "SELECT * FROM `litevip_users` WHERE `SteamId` = @SteamId", new { SteamId = steamId.SteamId2 });
+
+            return user;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+
+        return null;
+    }
+
+    private async Task<string> RemoveExpiredUsers()
+    {
+        try
+        {
+            await using var connection = new MySqlConnection(_dbConnectionString);
+
+            var expiredUsers = await connection.QueryAsync<User>(
+                "SELECT * FROM litevip_users WHERE EndVipTime < @CurrentTime AND EndVipTime > 0",
+                new { CurrentTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() });
+
+            foreach (var user in expiredUsers)
+            {
+                await connection.ExecuteAsync("DELETE FROM litevip_users WHERE SteamId = @SteamId",
+                    new { user.SteamId });
+
+                Console.WriteLine($"User {user.SteamId} has been removed due to expired VIP status.");
+            }
+
+            return "Expired users removed successfully.";
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+
+        return string.Empty;
+    }
+
+    private async Task<string> AddUserToDb(User user)
+    {
+        try
+        {
+            await using var connection = new MySqlConnection(_dbConnectionString);
+
+            var existingUser = await connection.QuerySingleOrDefaultAsync<User>(
+                @"SELECT * FROM litevip_users WHERE SteamId = @SteamId", new { user.SteamId });
+
+            if (existingUser != null)
+                return "User already exists";
+
+            await connection.ExecuteAsync(@"
+                INSERT INTO litevip_users (SteamId, VipGroup, StartVipTime, EndVipTime)
+                VALUES (@SteamId, @VipGroup, @StartVipTime, @EndVipTime);", user);
+
+            return $"Player '{user.SteamId}' has been successfully added";
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+
+        return string.Empty;
+    }
+
+    private async Task<string> AddKeyToDb(string key, string vipGroup, int time)
+    {
+        try
+        {
+            await using var connection = new MySqlConnection(_dbConnectionString);
+
+            var keyExists = await KeyExists(connection, key);
+
+            if (keyExists) return $"The key '{key}' already exists in the database.";
+
+            await connection.ExecuteAsync(@"
+                INSERT INTO litevip_keys 
+                    (`Key`, VipGroup, `Time`)
+                VALUES 
+                    (@Key, @VipGroup, @Time);",
+                new { Key = key, VipGroup = vipGroup, Time = time });
+
+            return $"The key '{key}' has been successfully added to the '{vipGroup}' group.";
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+
+        return string.Empty;
+    }
+
+    private async Task RemoveKeyFromDb(string key)
+    {
+        try
+        {
+            await using var connection = new MySqlConnection(_dbConnectionString);
+
+            var keyExists = await KeyExists(connection, key);
+
+            if (!keyExists) return;
+
+            await connection.ExecuteAsync(@"
+            DELETE FROM litevip_keys
+            WHERE `Key` = @Key;", new { Key = key });
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+    }
+
+    private async Task<bool> KeyExists(MySqlConnection connection, string key)
+    {
+        var existingKey = await connection.ExecuteScalarAsync<string>(@"
+        SELECT `Key` FROM litevip_keys WHERE `Key` = @Key;", new { Key = key });
+
+        return existingKey != null;
+    }
+
+    private async Task<(string VipGroup, int Time)> GetVipGroupAndTimeByKey(string key)
+    {
+        try
+        {
+            await using var connection = new MySqlConnection(_dbConnectionString);
+
+            var result = await connection.QueryFirstOrDefaultAsync<(string VipGroup, int Time)>(@"
+            SELECT VipGroup, Time FROM litevip_keys WHERE `Key` = @Key;", new { Key = key });
+
+            return result != default ? result : (string.Empty, 0);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            return (string.Empty, 0);
+        }
+    }
+
+    private async Task<string> RemoveUserFromDb(string steamId)
+    {
+        try
+        {
+            await using var connection = new MySqlConnection(_dbConnectionString);
+
+            var existingUser = await connection.QuerySingleOrDefaultAsync<User>(
+                @"SELECT * FROM litevip_users WHERE SteamId = @SteamId", new { SteamId = steamId });
+
+            if (existingUser == null)
+                return "User does not exist";
+
+            await connection.ExecuteAsync(@"
+            DELETE FROM litevip_users
+            WHERE SteamId = @SteamId;", new { SteamId = steamId });
+
+            return $"Player '{steamId}' has been successfully removed";
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+
+        return string.Empty;
+    }
+
+    private bool IsUserVip(uint index)
+    {
+        var user = Users[index];
+        if (user == null) return false;
+
+        if (DateTime.UtcNow.GetUnixEpoch() > user.EndVipTime) return false;
+        if (DateTime.UtcNow.GetUnixEpoch() < user.EndVipTime) return true;
+
+        return user.EndVipTime == 0;
+    }
+
+    private string ExtractValueInQuotes(string input)
+    {
+        var match = Regex.Match(input, @"""([^""]*)""");
+
+        return match.Success ? match.Groups[1].Value : input;
+    }
+
+    private void ReplyToCommand(CCSPlayerController? controller, string msg)
+    {
+        if (controller != null)
+            PrintToChat(controller, msg);
+        else
+            PrintToServer($"{msg}", ConsoleColor.DarkMagenta);
+    }
+
+    private void PrintToChat(CCSPlayerController player, string msg)
+    {
+        player.PrintToChat($"\x08[ \x0CLiteVip \x08] {msg}");
+    }
+
+    private void PrintToServer(string msg, ConsoleColor color)
+    {
+        Console.ForegroundColor = color;
+        Console.WriteLine($"[LiteVip] {msg}");
+        Console.ResetColor();
     }
 
     private Config LoadConfig()
@@ -367,10 +980,17 @@ public class LiteVip : BasePlugin
         {
             Admins = new List<ulong>(),
             Delay = 2.0f,
-            Users = new Dictionary<string, VipUser>
+            VipTestSettings = new VipTestSettings
+            {
+                VipTestEnabled = true,
+                VipTestTime = 3600,
+                VipTestGroup = "GROUP_NAME",
+                VipTestCount = 1
+            },
+            Groups = new Dictionary<string, VipGroup>
             {
                 {
-                    "SteamID64", new VipUser
+                    "GROUP_NAME", new VipGroup
                     {
                         Health = 100,
                         Armor = 100,
@@ -385,6 +1005,13 @@ public class LiteVip : BasePlugin
                             { DecoyTeleport = true, DecoyCountInOneRound = 1, DecoyCountToBeIssued = 1 }
                     }
                 }
+            },
+            Connection = new LiteVipDb
+            {
+                Host = "HOST",
+                Database = "DATABASENAME",
+                User = "USER",
+                Password = "PASSWORD"
             }
         };
 
@@ -399,47 +1026,46 @@ public class LiteVip : BasePlugin
     }
 }
 
-public class UserSettings
+public static class GetUnixTime
 {
-    public bool IsGravity { get; set; }
-    public bool IsHealth { get; set; }
-    public bool IsArmor { get; set; }
-    public bool IsHealthshot { get; set; }
-    public bool IsDecoy { get; set; }
-    public bool IsJumps { get; set; }
-    public bool IsItems { get; set; }
-    public bool IsRainbow { get; set; }
-    public int DecoyCount { get; set; }
-    public int JumpsCount { get; set; }
-    public PlayerButtons LastButtons { get; set; }
-    public PlayerFlags LastFlags { get; set; }
-    public Timer? RainbowTimer { get; set; }
+    public static int GetUnixEpoch(this DateTime dateTime)
+    {
+        var unixTime = dateTime.ToUniversalTime() -
+                       new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        return (int)unixTime.TotalSeconds;
+    }
 }
 
 public class Config
 {
     public List<ulong> Admins { get; set; } = null!;
     public float Delay { get; set; }
-    public required Dictionary<string, VipUser> Users { get; set; }
+    public VipTestSettings VipTestSettings { get; set; } = null!;
+    public required Dictionary<string, VipGroup> Groups { get; set; }
+    public LiteVipDb Connection { get; set; } = null!;
 }
 
-public class VipUser
+public class VipTestSettings
 {
-    public int Health { get; init; }
-    public int Armor { get; init; }
-    public float Gravity { get; init; }
-    public int Money { get; init; }
-    public required string SmokeColor { get; init; }
-    public int Healthshot { get; init; }
-    public int JumpsCount { get; init; }
-    public bool RainbowModel { get; init; }
-    public List<string> Items { get; init; } = null!;
-    public Decoy DecoySettings { get; init; } = null!;
+    public bool VipTestEnabled { get; set; }
+    public int VipTestTime { get; set; }
+    public required string VipTestGroup { get; set; }
+    public int VipTestCount { get; set; }
 }
 
-public class Decoy
+public class User
 {
-    public bool DecoyTeleport { get; init; }
-    public int DecoyCountInOneRound { get; init; }
-    public int DecoyCountToBeIssued { get; init; }
+    public required string SteamId { get; set; }
+    public required string VipGroup { get; set; }
+    public int StartVipTime { get; set; }
+    public int EndVipTime { get; set; }
+}
+
+public class LiteVipDb
+{
+    public required string Host { get; init; }
+    public required string Database { get; init; }
+    public required string User { get; init; }
+    public required string Password { get; init; }
 }
