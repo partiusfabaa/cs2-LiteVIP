@@ -47,7 +47,7 @@ public class LiteVip : BasePlugin
         RegisterEventHandler<EventPlayerSpawn>(EventPlayerSpawn);
         RegisterEventHandler<EventRoundStart>(EventRoundStart);
 
-        RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
+        //RegisterListener<Listeners.OnEntitySpawned>(OnEntitySpawned);
         RegisterListener<Listeners.OnClientConnected>((slot) =>
         {
             UsersSettings[slot + 1] = new UserSettings
@@ -365,6 +365,9 @@ public class LiteVip : BasePlugin
         var controller = @event.Userid;
         var entityIndex = controller.EntityIndex!.Value.Value;
 
+        var user = Users[entityIndex];
+        if (user == null) return HookResult.Continue;
+        
         if (!_config.Groups.TryGetValue(Users[controller.EntityIndex!.Value.Value]!.VipGroup, out var group))
             return HookResult.Continue;
 
@@ -624,34 +627,36 @@ public class LiteVip : BasePlugin
             controller.PlayerPawn.Value.GravityScale = group.Gravity.Value;
     }
 
-    private void OnEntitySpawned(CEntityInstance entity)
-    {
-        if (entity.DesignerName != "smokegrenade_projectile") return;
-
-        var smokeGrenade = new CSmokeGrenadeProjectile(entity.Handle);
-        if (smokeGrenade.Handle == IntPtr.Zero) return;
-
-        Server.NextFrame(() =>
-        {
-            if (!_config.Groups.TryGetValue(
-                    Users[smokeGrenade.Thrower.Value.Controller.Value.EntityIndex!.Value.Value]!.VipGroup,
-                    out var group)) return;
-
-            if (group.SmokeColor == null) return;
-
-            var split = group.SmokeColor.Split(" ");
-
-            smokeGrenade.SmokeColor.X = group.SmokeColor == "random"
-                ? Random.Shared.NextSingle() * 255.0f
-                : float.Parse(split[0]);
-            smokeGrenade.SmokeColor.Y = group.SmokeColor == "random"
-                ? Random.Shared.NextSingle() * 255.0f
-                : float.Parse(split[1]);
-            smokeGrenade.SmokeColor.Z = group.SmokeColor == "random"
-                ? Random.Shared.NextSingle() * 255.0f
-                : float.Parse(split[2]);
-        });
-    }
+    // private void OnEntitySpawned(CEntityInstance entity)
+    // {
+    //     if (entity.DesignerName != "smokegrenade_projectile") return;
+    //
+    //     var smokeGrenade = new CSmokeGrenadeProjectile(entity.Handle);
+    //     if (smokeGrenade.Handle == IntPtr.Zero) return;
+    //
+    //     var entityIndex = smokeGrenade.Thrower.Value.Controller.Value.EntityIndex!.Value.Value;
+    //     
+    //     Server.NextFrame(() =>
+    //     {
+    //          var user = Users[entityIndex];
+    //          if (user == null) return;
+    //          if (!_config.Groups.TryGetValue(user.VipGroup, out var group)) return;
+    
+    //         if (group.SmokeColor == null) return;
+    //
+    //         var split = group.SmokeColor.Split(" ");
+    //
+    //         smokeGrenade.SmokeColor.X = group.SmokeColor == "random"
+    //             ? Random.Shared.NextSingle() * 255.0f
+    //             : float.Parse(split[0]);
+    //         smokeGrenade.SmokeColor.Y = group.SmokeColor == "random"
+    //             ? Random.Shared.NextSingle() * 255.0f
+    //             : float.Parse(split[1]);
+    //         smokeGrenade.SmokeColor.Z = group.SmokeColor == "random"
+    //             ? Random.Shared.NextSingle() * 255.0f
+    //             : float.Parse(split[2]);
+    //     });
+    // }
 
     private void GiveItem(CCSPlayerController handle, string item)
     {
@@ -1001,7 +1006,7 @@ public class LiteVip : BasePlugin
                         Armor = 100,
                         Gravity = 1.0f,
                         Money = 1000,
-                        SmokeColor = "255 255 255",
+                        //SmokeColor = "255 255 255",
                         Healthshot = 1,
                         JumpsCount = 2,
                         RainbowModel = true,
