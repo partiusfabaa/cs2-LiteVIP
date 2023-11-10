@@ -144,9 +144,7 @@ public class LiteVip : BasePlugin
 
         var key = $"key-{DateTime.Now.ToString("yyyyMMddHHmmssfff") + new Random().Next(100, 999)}";
 
-        var msg = Task.Run(() => AddKeyToDb(key, vipGroup, int.Parse(time))).Result;
-
-        PrintToServer(msg, ConsoleColor.DarkGreen);
+        Task.Run(() => AddKeyToDb(key, vipGroup, int.Parse(time)));
     }
 
     [ConsoleCommand("css_vip_adduser")]
@@ -172,15 +170,13 @@ public class LiteVip : BasePlugin
             return;
         }
 
-        var msg = Task.Run(() => AddUserToDb(new User
+        Task.Run(() => AddUserToDb(new User
         {
             SteamId = steamId,
             VipGroup = vipGroup,
             StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
             EndVipTime = endVipTime == 0 ? 0 : DateTime.UtcNow.AddSeconds(endVipTime).GetUnixEpoch()
-        })).Result;
-
-        PrintToServer(msg, ConsoleColor.Green);
+        }));
     }
 
     [ConsoleCommand("css_vip_deleteuser")]
@@ -198,9 +194,7 @@ public class LiteVip : BasePlugin
 
         var steamId = ExtractValueInQuotes(splitCmdArgs[0]);
 
-        var msg = Task.Run(() => RemoveUserFromDb(steamId)).Result;
-
-        PrintToServer(msg, ConsoleColor.Red);
+        Task.Run(() => RemoveUserFromDb(steamId));
     }
 
     [ConsoleCommand("css_vip_key")]
@@ -222,13 +216,16 @@ public class LiteVip : BasePlugin
 
         var key = ParseCommandArguments(command.ArgString);
 
-        var vipGroupAndTime = Task.Run(() => GetVipGroupAndTimeByKey(key[0])).Result;
+        Task.Run(() => GivePlayerVipByKey(controller, key[0]));
+    }
 
+    private async void GivePlayerVipByKey(CCSPlayerController player, string key)
+    {
+        var vipGroupAndTime = await GetVipGroupAndTimeByKey(key);
+        var steamId = new SteamID(player.SteamID).SteamId2;
         if (!string.IsNullOrEmpty(vipGroupAndTime.VipGroup))
         {
-            var steamId = new SteamID(controller.SteamID).SteamId2;
-
-            Task.Run(() => AddUserToDb(new User
+            await AddUserToDb(new User
             {
                 SteamId = steamId,
                 VipGroup = vipGroupAndTime.VipGroup,
@@ -236,10 +233,11 @@ public class LiteVip : BasePlugin
                 EndVipTime = vipGroupAndTime.Time == 0
                     ? 0
                     : DateTime.UtcNow.AddSeconds(vipGroupAndTime.Time).GetUnixEpoch()
-            }));
-            Task.Run(() => RemoveKeyFromDb(key[0]));
+            });
+            
+            await RemoveKeyFromDb(key);
 
-            Users[controller.EntityIndex!.Value.Value] = new User
+            Users[player.EntityIndex!.Value.Value] = new User
             {
                 SteamId = steamId,
                 VipGroup = vipGroupAndTime.VipGroup,
@@ -249,11 +247,11 @@ public class LiteVip : BasePlugin
                     : DateTime.UtcNow.AddSeconds(vipGroupAndTime.Time).GetUnixEpoch()
             };
 
-            PrintToChat(controller,
-                $"Key '{key[0]}' has been successfully activated! You are now a member of the VIP group '{vipGroupAndTime.VipGroup}'");
+            PrintToChat(player,
+                $"Key '{key}' has been successfully activated! You are now a member of the VIP group '{vipGroupAndTime.VipGroup}'");
         }
         else
-            PrintToChat(controller, $"Failed to activate key '{key[0]}'. Please check if the key is valid.");
+            PrintToChat(player, $"Failed to activate key '{key}'. Please check if the key is valid.");
     }
 
     [ConsoleCommand("css_viptest")]
@@ -261,41 +259,44 @@ public class LiteVip : BasePlugin
     {
         if (controller == null) return;
 
-        var vipTest = new VipTest(_dbConnectionString);
-
         var vipTestSettings = _config.VipTestSettings;
-        var entityIndex = controller.EntityIndex!.Value.Value;
 
         if (!vipTestSettings.VipTestEnabled) return;
 
-        var steamId = new SteamID(controller.SteamID).SteamId2;
-
-        if (IsUserVip(entityIndex))
+        if (IsUserVip(controller.EntityIndex!.Value.Value))
         {
             PrintToChat(controller, "You already have VIP privileges.");
             return;
         }
+        
+        Task.Run(() => GivePlayerVipTest(controller, vipTestSettings));
+    }
 
-        var vipTestCount = Task.Run(() => vipTest.GetVipTestCount(steamId)).Result;
+    private async void GivePlayerVipTest(CCSPlayerController player, VipTestSettings vipTestSettings)
+    {
+        var vipTest = new VipTest(_dbConnectionString);
+        var steamId = new SteamID(player.SteamID).SteamId2;
+    
+        var vipTestCount = await vipTest.GetVipTestCount(steamId);
 
         if (vipTestCount >= vipTestSettings.VipTestCount)
         {
-            PrintToChat(controller, "You can no longer take the VIP Test");
+            PrintToChat(player, "You can no longer take the VIP Test");
             return;
         }
 
         var endTime = DateTime.UtcNow.AddSeconds(vipTestSettings.VipTestTime).GetUnixEpoch();
-        Task.Run(() => AddUserToDb(new User
+        await AddUserToDb(new User
         {
             SteamId = steamId,
             VipGroup = vipTestSettings.VipTestGroup,
             StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
             EndVipTime = endTime
-        }));
+        });
 
-        Task.Run(() => AddUserOrUpdateVipTestAsync(steamId, endTime, vipTest));
+        await AddUserOrUpdateVipTestAsync(steamId, endTime, vipTest);
 
-        Users[controller.EntityIndex!.Value.Value] = new User
+        Users[player.EntityIndex!.Value.Value] = new User
         {
             SteamId = steamId,
             VipGroup = vipTestSettings.VipTestGroup,
@@ -303,7 +304,7 @@ public class LiteVip : BasePlugin
             EndVipTime = endTime
         };
 
-        PrintToChat(controller,
+        PrintToChat(player,
             $"You have successfully received the 'VIP Test'! Ends in {DateTimeOffset.FromUnixTimeSeconds(endTime):hh:mm:ss}");
     }
 
@@ -800,7 +801,7 @@ public class LiteVip : BasePlugin
         return string.Empty;
     }
 
-    private async Task<string> AddUserToDb(User user)
+    private async Task AddUserToDb(User user)
     {
         try
         {
@@ -810,23 +811,24 @@ public class LiteVip : BasePlugin
                 @"SELECT * FROM litevip_users WHERE SteamId = @SteamId", new { user.SteamId });
 
             if (existingUser != null)
-                return "User already exists";
+            {
+                PrintToServer("User already exists", ConsoleColor.Yellow);
+                return;
+            }
 
             await connection.ExecuteAsync(@"
                 INSERT INTO litevip_users (SteamId, VipGroup, StartVipTime, EndVipTime)
                 VALUES (@SteamId, @VipGroup, @StartVipTime, @EndVipTime);", user);
-
-            return $"Player '{user.SteamId}' has been successfully added";
+            
+            PrintToServer($"Player '{user.SteamId}' has been successfully added", ConsoleColor.Green);
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
         }
-
-        return string.Empty;
     }
 
-    private async Task<string> AddKeyToDb(string key, string vipGroup, int time)
+    private async void AddKeyToDb(string key, string vipGroup, int time)
     {
         try
         {
@@ -834,7 +836,11 @@ public class LiteVip : BasePlugin
 
             var keyExists = await KeyExists(connection, key);
 
-            if (keyExists) return $"The key '{key}' already exists in the database.";
+            if (keyExists)
+            {
+                PrintToServer($"The key '{key}' already exists in the database.", ConsoleColor.Yellow);
+                return;
+            }
 
             await connection.ExecuteAsync(@"
                 INSERT INTO litevip_keys 
@@ -843,14 +849,12 @@ public class LiteVip : BasePlugin
                     (@Key, @VipGroup, @Time);",
                 new { Key = key, VipGroup = vipGroup, Time = time });
 
-            return $"The key '{key}' has been successfully added to the '{vipGroup}' group.";
+            PrintToServer($"The key '{key}' has been successfully added to the '{vipGroup}' group.", ConsoleColor.DarkGreen);
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
         }
-
-        return string.Empty;
     }
 
     private async Task RemoveKeyFromDb(string key)
@@ -899,7 +903,7 @@ public class LiteVip : BasePlugin
         }
     }
 
-    private async Task<string> RemoveUserFromDb(string steamId)
+    private async void RemoveUserFromDb(string steamId)
     {
         try
         {
@@ -909,20 +913,21 @@ public class LiteVip : BasePlugin
                 @"SELECT * FROM litevip_users WHERE SteamId = @SteamId", new { SteamId = steamId });
 
             if (existingUser == null)
-                return "User does not exist";
+            {
+                PrintToServer("User does not exist", ConsoleColor.Red);
+                return;
+            }
 
             await connection.ExecuteAsync(@"
             DELETE FROM litevip_users
             WHERE SteamId = @SteamId;", new { SteamId = steamId });
 
-            return $"Player '{steamId}' has been successfully removed";
+            PrintToServer($"Player '{steamId}' has been successfully removed", ConsoleColor.Red);
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
         }
-
-        return string.Empty;
     }
 
     private bool IsUserVip(uint index)
