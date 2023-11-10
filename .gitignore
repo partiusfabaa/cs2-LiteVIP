@@ -60,3 +60,5 @@ LiteVip/obj/release/net7.0/.NETCoreApp,Version=v7.0.AssemblyAttributes.cs
 LiteVip/obj/release/net7.0/LiteVip.AssemblyInfo.cs
 LiteVip/bin/release/net7.0/publish/LiteVip.zip
 LiteVip/.idea/.idea.LiteVip.dir/.idea/discord-ij.xml
+*.xml
+*.info

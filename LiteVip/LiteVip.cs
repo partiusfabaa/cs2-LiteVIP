@@ -188,13 +188,13 @@ public class LiteVip : BasePlugin
     {
         if (controller != null) return;
 
-        if (command.ArgCount is < 3 or > 3)
+        var splitCmdArgs = ParseCommandArguments(command.ArgString);
+        
+        if (splitCmdArgs.Length is < 1 or > 1)
         {
-            ReplyToCommand(controller, "Using: css_vip_deleteuser <SteamId>");
+            ReplyToCommand(controller, "Using: css_vip_deleteuser <steamid>");
             return;
         }
-
-        var splitCmdArgs = ParseCommandArguments(command.ArgString);
 
         var steamId = ExtractValueInQuotes(splitCmdArgs[0]);
 
