@@ -1,7 +1,7 @@
 # cs2-LiteVIP
 plugin for cs2 with basic functions VIP
 
-## If you find an error or anything else. Please message me in discord: @thesamefabius
+#### If you find an error or anything else. Please message me in discord: @thesamefabius
 
 <img src="https://github.com/partiusfabaa/cs2-LiteVIP/assets/96542489/e99c9cb4-b456-4947-bd6d-d2efd7fc98b0" width="194" height="293">
 
