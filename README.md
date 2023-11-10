@@ -21,7 +21,7 @@ The config is created automatically in the same place where the dll is located
       "Armor": 175,		//amount of armor
       "Gravity": 0.7,		//Gravity: less than 1 is low, more than 1 is high.
       "Money": 16000,		//amount of money at spawning
-      "SmokeColor": "255 11 22",//color R G B is spelled with a space.
+      "SmokeColor": "255 11 22",//color R G B is spelled with a space or "random" and then you'll have a different color for every shot.
       "Healthshot": 1,		//syringe count at revival
       "JumpsCount": 2,		//number of additional jumps
       "RainbowModel": true, 	//true - on, false - off
