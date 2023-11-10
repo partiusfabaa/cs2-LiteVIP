@@ -77,7 +77,7 @@ Now it is not necessary to write all parameters to a group, you can delete those
 
 `css_vip_createkey "vipgroup" "time_seconds"` - allows you to create a key for vip-activation (for server console only)
 
-`css_vip_adduser "steamid" "vipgroup" "time_second"` - adds a vip player
+`css_vip_adduser "steamid" "vipgroup" "time_second"` - adds a vip player (for server console only)
 
-`css_vip_deleteuser "steamid"` - allows you to delete a player by steamid identifier
+`css_vip_deleteuser "steamid"` - allows you to delete a player by steamid identifier (for server console only)
 
