@@ -63,13 +63,13 @@ Now it is not necessary to write all parameters to a group, you can delete those
 
 # Commands
 
-`css_vip`,`!vip` - opens the VIP menu
+`css_vip` | `!vip` - opens the VIP menu
 
-`css_vip_gravity`,`!vip_gravity` - allows you to turn gravity on and off
+`css_vip_gravity` | `!vip_gravity` - allows you to turn gravity on and off
 
-`css_vip_key "key"` - allows the user to activate a key with VIP privileges.
+`css_vip_key key` | `!vip_key key` - allows the user to activate a key with VIP privileges.
 
-`css_viptest` - allows the user to take the VIP test
+`css_viptest` | `!viptest` - allows the user to take the VIP test
 
 ### Commands for chief administrators
 
