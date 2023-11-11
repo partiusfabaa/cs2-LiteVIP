@@ -16,6 +16,7 @@ The config is created automatically in the same place where the dll is located
 
 Now it is not necessary to write all parameters to a group, you can delete those that are not needed for a particular group
 {
+  "JumpsNoVip": 1,
   "Admins": [76561144096558223],//SteamID64 should be separated by commas
   "Delay": 2,			//At what interval to issue the VIP(second)
   "VipTestSettings": {
