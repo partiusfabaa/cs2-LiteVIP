@@ -26,11 +26,10 @@ public class LiteVip : BasePlugin
     public override string ModuleVersion => "v1.0.6";
 
     private string _dbConnectionString = string.Empty;
-
     private static readonly User?[] Users = new User[65];
-
     private static Config _config = null!;
-
+    private static readonly int?[] _jumps = new int?[65];
+    
     //private short _offsetRender;
     private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers];
 
@@ -57,6 +56,8 @@ public class LiteVip : BasePlugin
                 IsItems = true, IsRainbow = true, DecoyCount = 0,
                 JumpsCount = 0, LastButtons = 0, LastFlags = 0
             };
+
+            _jumps[slot + 1] = 0;
         });
 
         RegisterListener<Listeners.OnClientAuthorized>((slot, steamId) =>
@@ -85,7 +86,7 @@ public class LiteVip : BasePlugin
 
                 var player = new CCSPlayerController(entity);
 
-                if (player is not { IsValid: true }) continue;
+                if (player is not { IsValid: true, IsBot: false }) continue;
 
                 OnTick(player);
             }
@@ -95,6 +96,7 @@ public class LiteVip : BasePlugin
         {
             Users[slot + 1] = null;
             UsersSettings[slot + 1] = null;
+            _jumps[slot + 1] = -1;
         });
 
         CreateMenu();
@@ -508,12 +510,17 @@ public class LiteVip : BasePlugin
         if (!player.PawnIsAlive)
             return;
 
-        var user = Users[player.EntityIndex!.Value.Value];
-        if (user == null) return;
-
-        if (!_config.Groups.TryGetValue(user.VipGroup, out var group)) return;
-
         var client = player.EntityIndex!.Value.Value;
+        var user = Users[client];
+        
+        if (user == null)
+            _jumps[client] = _config.JumpsNoVip;
+        else
+        {
+            if (_config.Groups.TryGetValue(user.VipGroup, out var group))
+                _jumps[client] = group.JumpsCount;
+        }
+
         var playerPawn = player.PlayerPawn.Value;
         var flags = (PlayerFlags)playerPawn.Flags;
         var buttons = player.Buttons;
@@ -528,7 +535,7 @@ public class LiteVip : BasePlugin
             UsersSettings[client]!.JumpsCount = 0;
         else if ((UsersSettings[client]!.LastButtons & PlayerButtons.Jump) == 0 &&
                  (buttons & PlayerButtons.Jump) != 0 &&
-                 UsersSettings[client]!.JumpsCount < group.JumpsCount)
+                 UsersSettings[client]!.JumpsCount < _jumps[client])
         {
             UsersSettings[client]!.JumpsCount++;
 
@@ -988,6 +995,7 @@ public class LiteVip : BasePlugin
     {
         var config = new Config
         {
+            JumpsNoVip = 2,
             Admins = new List<ulong>(),
             Delay = 2.0f,
             VipTestSettings = new VipTestSettings
@@ -1049,6 +1057,7 @@ public static class GetUnixTime
 
 public class Config
 {
+    public int JumpsNoVip { get; set; }
     public List<ulong> Admins { get; set; } = null!;
     public float Delay { get; set; }
     public VipTestSettings VipTestSettings { get; set; } = null!;
@@ -1058,10 +1067,10 @@ public class Config
 
 public class VipTestSettings
 {
-    public bool VipTestEnabled { get; set; }
-    public int VipTestTime { get; set; }
-    public required string VipTestGroup { get; set; }
-    public int VipTestCount { get; set; }
+    public bool VipTestEnabled { get; init; }
+    public int VipTestTime { get; init; }
+    public required string VipTestGroup { get; init; }
+    public int VipTestCount { get; init; }
 }
 
 public class User
