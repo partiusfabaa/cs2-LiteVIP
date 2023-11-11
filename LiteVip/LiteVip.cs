@@ -23,12 +23,12 @@ public class LiteVip : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "Lite VIP";
-    public override string ModuleVersion => "v1.0.6";
+    public override string ModuleVersion => "v1.0.7";
 
     private string _dbConnectionString = string.Empty;
     private static readonly User?[] Users = new User[65];
     private static Config _config = null!;
-    private static readonly int?[] _jumps = new int?[65];
+    private static readonly int?[] Jumps = new int?[65];
     
     //private short _offsetRender;
     private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers];
@@ -57,7 +57,7 @@ public class LiteVip : BasePlugin
                 JumpsCount = 0, LastButtons = 0, LastFlags = 0
             };
 
-            _jumps[slot + 1] = 0;
+            Jumps[slot + 1] = 0;
         });
 
         RegisterListener<Listeners.OnClientAuthorized>((slot, steamId) =>
@@ -96,7 +96,7 @@ public class LiteVip : BasePlugin
         {
             Users[slot + 1] = null;
             UsersSettings[slot + 1] = null;
-            _jumps[slot + 1] = -1;
+            Jumps[slot + 1] = -1;
         });
 
         CreateMenu();
@@ -514,11 +514,11 @@ public class LiteVip : BasePlugin
         var user = Users[client];
         
         if (user == null)
-            _jumps[client] = _config.JumpsNoVip;
+            Jumps[client] = _config.JumpsNoVip;
         else
         {
             if (_config.Groups.TryGetValue(user.VipGroup, out var group))
-                _jumps[client] = group.JumpsCount;
+                Jumps[client] = group.JumpsCount;
         }
 
         var playerPawn = player.PlayerPawn.Value;
@@ -535,7 +535,7 @@ public class LiteVip : BasePlugin
             UsersSettings[client]!.JumpsCount = 0;
         else if ((UsersSettings[client]!.LastButtons & PlayerButtons.Jump) == 0 &&
                  (buttons & PlayerButtons.Jump) != 0 &&
-                 UsersSettings[client]!.JumpsCount < _jumps[client])
+                 UsersSettings[client]!.JumpsCount < Jumps[client])
         {
             UsersSettings[client]!.JumpsCount++;
 
