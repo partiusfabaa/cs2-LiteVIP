@@ -23,7 +23,7 @@ public class LiteVip : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "Lite VIP";
-    public override string ModuleVersion => "v1.0.5";
+    public override string ModuleVersion => "v1.0.6";
 
     private string _dbConnectionString = string.Empty;
 
