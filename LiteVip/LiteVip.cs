@@ -29,7 +29,7 @@ public class LiteVip : BasePlugin
     private static readonly User?[] Users = new User[65];
     private static Config _config = null!;
     private static readonly int?[] Jumps = new int?[65];
-    
+
     //private short _offsetRender;
     private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers];
 
@@ -63,22 +63,15 @@ public class LiteVip : BasePlugin
         RegisterListener<Listeners.OnClientAuthorized>((slot, steamId) =>
         {
             var player = Utilities.GetPlayerFromSlot(slot);
-            
+
             Task.Run(() => OnClientAuthorizedAsync(player, slot, steamId));
         });
 
         RegisterListener<Listeners.OnTick>(() =>
         {
-            for (var i = 1; i < 64; i++)
+            foreach (var player in Utilities.GetPlayers()
+                         .Where(player => player is { IsValid: true, IsBot: false, PawnIsAlive: true }))
             {
-                var entity = NativeAPI.GetEntityFromIndex(i);
-
-                if (entity == 0) continue;
-
-                var player = new CCSPlayerController(entity);
-
-                if (player is not { IsValid: true, IsBot: false }) continue;
-
                 OnTick(player);
             }
         });
@@ -111,7 +104,7 @@ public class LiteVip : BasePlugin
             StartVipTime = user.StartVipTime,
             EndVipTime = user.EndVipTime
         };
-        
+
         var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
         var timeRemainingFormatted =
             $"{timeRemaining.Days}d {timeRemaining.Hours:D2}:{timeRemaining.Minutes:D2}:{timeRemaining.Seconds:D2}";
@@ -184,7 +177,7 @@ public class LiteVip : BasePlugin
         if (controller != null) return;
 
         var splitCmdArgs = ParseCommandArguments(command.ArgString);
-        
+
         if (splitCmdArgs.Length is < 1 or > 1)
         {
             ReplyToCommand(controller, "Using: css_vip_deleteuser <steamid>");
@@ -233,7 +226,7 @@ public class LiteVip : BasePlugin
                     ? 0
                     : DateTime.UtcNow.AddSeconds(vipGroupAndTime.Time).GetUnixEpoch()
             });
-            
+
             await RemoveKeyFromDb(key);
 
             Users[player.EntityIndex!.Value.Value] = new User
@@ -267,7 +260,7 @@ public class LiteVip : BasePlugin
             PrintToChat(controller, "You already have VIP privileges.");
             return;
         }
-        
+
         Task.Run(() => GivePlayerVipTest(controller, vipTestSettings));
     }
 
@@ -275,7 +268,7 @@ public class LiteVip : BasePlugin
     {
         var vipTest = new VipTest(_dbConnectionString);
         var steamId = new SteamID(player.SteamID).SteamId2;
-    
+
         var vipTestCount = await vipTest.GetVipTestCount(steamId);
 
         if (vipTestCount >= vipTestSettings.VipTestCount)
@@ -368,7 +361,7 @@ public class LiteVip : BasePlugin
 
         var user = Users[entityIndex];
         if (user == null) return HookResult.Continue;
-        
+
         if (!_config.Groups.TryGetValue(Users[controller.EntityIndex!.Value.Value]!.VipGroup, out var group))
             return HookResult.Continue;
 
@@ -405,7 +398,7 @@ public class LiteVip : BasePlugin
         if (@event.Userid.Handle == IntPtr.Zero || @event.Userid.UserId == null) return HookResult.Continue;
 
         var controller = @event.Userid;
-        
+
         AddTimer(_config.Delay, () => Timer_Give(controller));
 
         return HookResult.Continue;
@@ -506,18 +499,20 @@ public class LiteVip : BasePlugin
 
     private static void OnTick(CCSPlayerController player)
     {
-        if (!player.PawnIsAlive)
-            return;
-
         var client = player.EntityIndex!.Value.Value;
         var user = Users[client];
-        
+
         if (user == null)
             Jumps[client] = _config.JumpsNoVip;
         else
         {
             if (_config.Groups.TryGetValue(user.VipGroup, out var group))
-                Jumps[client] = group.JumpsCount;
+            {
+                if(group.JumpsCount == null)
+                    Jumps[client] = _config.JumpsNoVip;
+                else
+                    Jumps[client] = group.JumpsCount;
+            }
         }
 
         var playerPawn = player.PlayerPawn.Value;
@@ -601,7 +596,7 @@ public class LiteVip : BasePlugin
                     PrintToChat(player, "You do not have access to this command!");
                     return;
                 }
-                
+
                 AdjustPlayerGravity(player);
             });
     }
@@ -636,7 +631,7 @@ public class LiteVip : BasePlugin
     private void OnEntitySpawned(CEntityInstance entity)
     {
         if (entity.DesignerName != "smokegrenade_projectile") return;
-    
+
         var smokeGrenade = new CSmokeGrenadeProjectile(entity.Handle);
         if (smokeGrenade.Handle == IntPtr.Zero) return;
 
@@ -647,11 +642,11 @@ public class LiteVip : BasePlugin
             var user = Users[entityIndex];
             if (user == null) return;
             if (!_config.Groups.TryGetValue(user.VipGroup, out var group)) return;
-        
+
             if (group.SmokeColor == null) return;
 
             var split = group.SmokeColor.Split(" ");
-            
+
             smokeGrenade.SmokeColor.X = group.SmokeColor == "random"
                 ? Random.Shared.NextSingle() * 255.0f
                 : float.Parse(split[0]);
@@ -661,7 +656,7 @@ public class LiteVip : BasePlugin
             smokeGrenade.SmokeColor.Z = group.SmokeColor == "random"
                 ? Random.Shared.NextSingle() * 255.0f
                 : float.Parse(split[2]);
-        }); 
+        });
     }
 
     private void GiveItem(CCSPlayerController handle, string item)
@@ -830,7 +825,7 @@ public class LiteVip : BasePlugin
             await connection.ExecuteAsync(@"
                 INSERT INTO litevip_users (SteamId, VipGroup, StartVipTime, EndVipTime)
                 VALUES (@SteamId, @VipGroup, @StartVipTime, @EndVipTime);", user);
-            
+
             PrintToServer($"Player '{user.SteamId}' has been successfully added", ConsoleColor.Green);
         }
         catch (Exception e)
@@ -860,7 +855,8 @@ public class LiteVip : BasePlugin
                     (@Key, @VipGroup, @Time);",
                 new { Key = key, VipGroup = vipGroup, Time = time });
 
-            PrintToServer($"The key '{key}' has been successfully added to the '{vipGroup}' group.", ConsoleColor.DarkGreen);
+            PrintToServer($"The key '{key}' has been successfully added to the '{vipGroup}' group.",
+                ConsoleColor.DarkGreen);
         }
         catch (Exception e)
         {
