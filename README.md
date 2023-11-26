@@ -45,6 +45,7 @@ Now it is not necessary to write all parameters to a group, you can delete those
       "Healthshot": 1,		//syringe count at revival
       "JumpsCount": 2,		//number of additional jumps
       "RainbowModel": true, 	//true - on, false - off
+      "Respawn": 2, 		//How many revivals per round are available to a player
       "Items": ["weapon_molotov", "weapon_ak47"], //items given out at revival. If you don't need anything, leave the field blank
       "DecoySettings": {	
         "DecoyTeleport": true,	  //Is the teleportation grenade enabled? true - yes, false - no
