@@ -74,11 +74,10 @@ Now it is not necessary to write all parameters to a group, you can delete those
 
 ### Commands for chief administrators
 
-`css_vip_reload`,`!vip_reload` - reloads the configuration. Only for those specified in the configuration
-
-`css_vip_createkey "vipgroup" "time_seconds or 0 permanently"` - allows you to create a key for vip-activation (for server console only)
-
-`css_vip_adduser "steamid" "vipgroup" "time_second or 0 permanently"` - adds a vip player (for server console only)
-
-`css_vip_deleteuser "steamid"` - allows you to delete a player by steamid identifier (for server console only)
+| Command                             | Description                                               |
+|-------------------------------------|-----------------------------------------------------------|
+| `css_vip_reload` or `!vip_reload`    | Reloads the configuration. Only for those specified in the configuration |
+| `css_vip_createkey "vipgroup" "time_seconds or 0 permanently"` or `!vip_createkey "vipgroup" "time_seconds or 0 permanently"` | Allows you to create a key for VIP activation (for server console only) |
+| `css_vip_adduser "steamid" "vipgroup" "time_seconds or 0 permanently"` or `!vip_adduser "steamid" "vipgroup" "time_seconds or 0 permanently"` | Adds a VIP player (for server console only) |
+| `css_vip_deleteuser "steamid"` or `!vip_deleteuser "steamid"` | Allows you to delete a player by SteamID identifier (for server console only) |
 
