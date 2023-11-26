@@ -12,7 +12,7 @@ plugin for cs2 with basic functions VIP
 
 # Config
 The config is created automatically in the same place where the dll is located
-```
+```json
 
 Now it is not necessary to write all parameters to a group, you can delete those that are not needed for a particular group
 {
@@ -22,6 +22,7 @@ Now it is not necessary to write all parameters to a group, you can delete those
   "VipTestSettings": {
     "VipTestEnabled": true, 	//is VIP-TEST enabled? true - yes, false - no
     "VipTestTime": 3600,	//Duration of VIP test issuance (in seconds)
+    "VipTestCooldown": 3600, 	//How long before I can retest for VIP (in seconds)
     "VipTestGroup": "VIP1",	//Assigned VIP Group
     "VipTestCount": 4		//How many times can a player take the VIP test
   },
