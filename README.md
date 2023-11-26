@@ -69,6 +69,7 @@ Now it is not necessary to write all parameters to a group, you can delete those
 |------------------|-------------------------------|
 | `css_vip` or `!vip` | opens the VIP menu          |
 | `css_vip_gravity` or `!vip_gravity` | allows you to turn gravity on and off |
+| `css_vip_respawn` or `!vip_respawn` | allows the player to be revived |
 | `css_vip_key key` or `!vip_key key` | allows the user to activate a key with VIP privileges. |
 | `css_viptest` or `!viptest` | allows the user to take the VIP test |
 
