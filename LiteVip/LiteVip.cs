@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -25,10 +25,11 @@ public class LiteVip : BasePlugin
     public override string ModuleName => "Lite VIP";
     public override string ModuleVersion => "v1.0.7";
 
-    private string _dbConnectionString = string.Empty;
+    private static string _dbConnectionString = string.Empty;
     private static readonly User?[] Users = new User[65];
     private static Config _config = null!;
     private static readonly int?[] Jumps = new int?[65];
+    private static readonly int?[] Respawn = new int?[65];
 
     //private short _offsetRender;
     private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers];
@@ -36,9 +37,9 @@ public class LiteVip : BasePlugin
     public override void Load(bool hotReload)
     {
         _dbConnectionString = BuildConnectionString();
-        Task.Run(() => CreateTable(_dbConnectionString));
-        Task.Run(() => CreateKeysTable(_dbConnectionString));
-        Task.Run(() => CreateVipTestTable(_dbConnectionString));
+        Task.Run(CreateTable);
+        Task.Run(CreateKeysTable);
+        Task.Run(CreateVipTestTable);
         //_offsetRender = Schema.GetSchemaOffset("CBaseModelEntity", "m_clrRender");
         _config = LoadConfig();
 
@@ -57,14 +58,17 @@ public class LiteVip : BasePlugin
                 JumpsCount = 0, LastButtons = 0, LastFlags = 0
             };
 
+            Task.Run(() => OnClientConnectedAsync(Utilities.GetPlayerFromSlot(slot), slot));
+            
             Jumps[slot + 1] = 0;
+            Respawn[slot + 1] = 0;
         });
 
         RegisterListener<Listeners.OnClientAuthorized>((slot, steamId) =>
         {
             var player = Utilities.GetPlayerFromSlot(slot);
 
-            Task.Run(() => OnClientAuthorizedAsync(player, slot, steamId));
+            Task.Run(() => OnClientAuthorizedAsync(player));
         });
 
         RegisterListener<Listeners.OnTick>(() =>
@@ -72,6 +76,9 @@ public class LiteVip : BasePlugin
             foreach (var player in Utilities.GetPlayers()
                          .Where(player => player is { IsValid: true, IsBot: false, PawnIsAlive: true }))
             {
+                var index = player.EntityIndex!.Value.Value;
+                if (Users[index] == null || UsersSettings[index] == null) continue;
+                
                 OnTick(player);
             }
         });
@@ -80,7 +87,8 @@ public class LiteVip : BasePlugin
         {
             Users[slot + 1] = null;
             UsersSettings[slot + 1] = null;
-            Jumps[slot + 1] = -1;
+            Jumps[slot + 1] = null;
+            Respawn[slot + 1] = null;
         });
 
         CreateMenu();
@@ -88,28 +96,64 @@ public class LiteVip : BasePlugin
         AddTimer(300, () => Task.Run(RemoveExpiredUsers), TimerFlags.REPEAT);
     }
 
-    private async Task OnClientAuthorizedAsync(CCSPlayerController player, int playerSlot, SteamID steamId)
+    private async Task OnClientAuthorizedAsync(CCSPlayerController player)
     {
-        var msg = await RemoveExpiredUsers();
-        PrintToServer(msg, ConsoleColor.DarkGreen);
-
-        var user = await GetUserFromDb(steamId);
+        var user = await GetUserFromDb(new SteamID(player.SteamID));
 
         if (user == null) return;
-
-        Users[playerSlot + 1] = new User
-        {
-            SteamId = user.SteamId,
-            VipGroup = user.VipGroup,
-            StartVipTime = user.StartVipTime,
-            EndVipTime = user.EndVipTime
-        };
 
         var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
         var timeRemainingFormatted =
             $"{timeRemaining.Days}d {timeRemaining.Hours:D2}:{timeRemaining.Minutes:D2}:{timeRemaining.Seconds:D2}";
         PrintToChat(player,
             $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08'{(user.EndVipTime == 0 ? "" : $", Expires in: \x06{timeRemainingFormatted}")}.");
+    }
+
+    private async Task OnClientConnectedAsync(CCSPlayerController player, int playerSlot)
+    {
+        var msg = await RemoveExpiredUsers();
+        PrintToServer(msg, ConsoleColor.DarkGreen);
+
+        var user = await GetUserFromDb(new SteamID(player.SteamID));
+
+        if (user == null) return;
+
+        if (!player.IsBot)
+        {
+            Users[playerSlot + 1] = new User
+            {
+                SteamId = user.SteamId,
+                VipGroup = user.VipGroup,
+                StartVipTime = user.StartVipTime,
+                EndVipTime = user.EndVipTime
+            };
+        }
+    }
+
+    [ConsoleCommand("css_vip_respawn")]
+    public void OnCommandRespawn(CCSPlayerController? controller, CommandInfo info)
+    {
+        if (controller == null) return;
+        var entityIndex = controller.EntityIndex!.Value.Value;
+        
+        var group = GetUserVipGroup(controller);
+
+        if (group == null) return;
+
+        if (Respawn[entityIndex] >= group.Respawn)
+        {
+            PrintToChat(controller, "You've already used all your respawns");
+            return;
+        }
+
+        if (controller.PawnIsAlive)
+        {
+            PrintToChat(controller, "You should be dead!");
+            return;
+        }
+        
+        controller.PlayerPawn.Value.Respawn();
+        Respawn[entityIndex] ++;
     }
 
     [ConsoleCommand("css_vip_createkey")]
@@ -271,12 +315,23 @@ public class LiteVip : BasePlugin
 
         var vipTestCount = await vipTest.GetVipTestCount(steamId);
 
-        if (vipTestCount >= vipTestSettings.VipTestCount)
+        if (vipTestCount.Count >= vipTestSettings.VipTestCount)
         {
             PrintToChat(player, "You can no longer take the VIP Test");
             return;
         }
+        
+        if (vipTestCount.EndTime > DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        {
+            var time = DateTimeOffset.FromUnixTimeSeconds(vipTestCount.EndTime) -
+                       DateTimeOffset.UtcNow;
+            var timeRemainingFormatted =
+                $"{(time.Days == 0 ? "" : $"{time.Days}d")} {time.Hours:D2}:{time.Minutes:D2}:{time.Seconds:D2}";
 
+            PrintToChat(player, $"The VIP test can only be retaken through: {timeRemainingFormatted}");
+            return;
+        }
+        
         var endTime = DateTime.UtcNow.AddSeconds(vipTestSettings.VipTestTime).GetUnixEpoch();
         await AddUserToDb(new User
         {
@@ -285,8 +340,10 @@ public class LiteVip : BasePlugin
             StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
             EndVipTime = endTime
         });
+        
+        var vipTestCooldown = DateTime.UtcNow.AddSeconds(vipTestSettings.VipTestCooldown).GetUnixEpoch();
 
-        await AddUserOrUpdateVipTestAsync(steamId, endTime, vipTest);
+        await AddUserOrUpdateVipTestAsync(steamId, vipTestCooldown, vipTest);
 
         Users[player.EntityIndex!.Value.Value] = new User
         {
@@ -308,7 +365,7 @@ public class LiteVip : BasePlugin
 
         if (userInVipTest)
         {
-            await vipTest.UpdateUserVipTestCount(steamId, 1);
+            await vipTest.UpdateUserVipTestCount(steamId, 1, endTime);
             return;
         }
 
@@ -347,6 +404,13 @@ public class LiteVip : BasePlugin
         {
             if (userSettings != null)
                 userSettings.DecoyCount = 0;
+        }
+        
+        foreach (var player in Utilities.GetPlayers())
+        {
+            var entityIndex = player.EntityIndex!.Value.Value;
+            if (Respawn[entityIndex] != null)
+                Respawn[entityIndex] = 0;
         }
 
         return HookResult.Continue;
@@ -406,14 +470,12 @@ public class LiteVip : BasePlugin
 
     private void Timer_Give(CCSPlayerController controller)
     {
-        if (controller.SteamID == 0) return;
+        if (controller.SteamID == 0 || !controller.IsValid) return;
 
-        var user = Users[controller.EntityIndex!.Value.Value];
+        var group = GetUserVipGroup(controller);
 
-        if (user == null) return;
-        if (!IsUserInDatabase(new SteamID(controller.SteamID).SteamId2, user.VipGroup)) return;
-        if (!_config.Groups.TryGetValue(user.VipGroup, out var group)) return;
-
+        if (group == null) return;
+        
         var userSettings = UsersSettings[controller.EntityIndex!.Value.Value]!;
 
         var playerPawnValue = controller.PlayerPawn.Value;
@@ -433,41 +495,36 @@ public class LiteVip : BasePlugin
 
         if (playerPawnValue.ItemServices != null)
         {
-            if (group.DecoySettings is { DecoyTeleport: true })
+            if (group.DecoySettings is { DecoyTeleport: true } && userSettings.IsDecoy && group.DecoySettings.DecoyCountToBeIssued > 0)
             {
-                if (userSettings.IsDecoy)
+                const string decoy = "weapon_decoy";
+                for (var i = 0; i < group.DecoySettings.DecoyCountToBeIssued; i++)
                 {
-                    if (group.DecoySettings.DecoyCountToBeIssued > 0)
+                    if (!HasItem(controller, decoy))
                     {
-                        for (var i = 0; i < group.DecoySettings.DecoyCountToBeIssued; i++)
-                            GiveItem(controller, "weapon_decoy");
+                        GiveItem(controller, decoy);
                     }
                 }
             }
 
-            if (group.Healthshot != null)
+            if (group.Healthshot != null && userSettings.IsHealthshot && group.Healthshot.Value > 0)
             {
-                if (userSettings.IsHealthshot)
+                const string healthShot = "weapon_healthshot";
+                var countHealthshot = playerPawnValue.WeaponServices?.MyWeapons.Count(w => w.Value.DesignerName == healthShot);
+
+                Server.PrintToChatAll($"Healthshot: {group.Healthshot.Value} - {countHealthshot} = {group.Healthshot.Value - countHealthshot}");
+                for (var i = 0; i < group.Healthshot.Value - countHealthshot; i++)
                 {
-                    if (group.Healthshot.Value > 0)
-                    {
-                        for (var i = 0; i < group.Healthshot; i++)
-                            GiveItem(controller, "weapon_healthshot");
-                    }
-                    else if (group.Healthshot == 1)
-                        GiveItem(controller, "weapon_healthshot");
+                    GiveItem(controller, healthShot);
                 }
             }
 
-            if (group.Items != null)
+            if (group.Items != null && userSettings.IsItems && group.Items.Count > 0)
             {
-                if (userSettings.IsItems)
+                foreach (var item in group.Items)
                 {
-                    if (group.Items.Count > 0)
-                    {
-                        foreach (var item in group.Items)
-                            GiveItem(controller, item);
-                    }
+                    if (!playerPawnValue.WeaponServices?.MyWeapons?.Any(w => w.Value.DesignerName == item) ?? true)
+                        GiveItem(controller, item);
                 }
             }
         }
@@ -497,6 +554,27 @@ public class LiteVip : BasePlugin
         Console.ResetColor();
     }
 
+    private bool HasItem(CCSPlayerController player, string item)
+    {
+        foreach (var weapon in player.PlayerPawn.Value.WeaponServices.MyWeapons)
+        {
+            if (!weapon.Value.DesignerName.Contains(item)) continue;
+
+            return true;
+        }
+        return false;
+    }
+
+    public VipGroup? GetUserVipGroup(CCSPlayerController player)
+    {
+        var user = Users[player.EntityIndex!.Value.Value];
+        
+        if (user == null) return null;
+        if (!IsUserInDatabase(new SteamID(player.SteamID).SteamId2, user.VipGroup)) return null;
+        
+        return !_config.Groups.TryGetValue(user.VipGroup, out var group) ? null : group;
+    }
+    
     private static void OnTick(CCSPlayerController player)
     {
         var client = player.EntityIndex!.Value.Value;
@@ -682,11 +760,11 @@ public class LiteVip : BasePlugin
         return builder.ConnectionString;
     }
 
-    static async Task CreateTable(string connectionString)
+    static async Task CreateTable()
     {
         try
         {
-            await using var dbConnection = new MySqlConnection(connectionString);
+            await using var dbConnection = new MySqlConnection(_dbConnectionString);
             dbConnection.Open();
 
             var createVipUsersTable = @"
@@ -705,11 +783,11 @@ public class LiteVip : BasePlugin
         }
     }
 
-    static async Task CreateKeysTable(string connectionString)
+    static async Task CreateKeysTable()
     {
         try
         {
-            await using var dbConnection = new MySqlConnection(connectionString);
+            await using var dbConnection = new MySqlConnection(_dbConnectionString);
             dbConnection.Open();
 
             var createKeysTable = @"
@@ -727,11 +805,11 @@ public class LiteVip : BasePlugin
         }
     }
 
-    static async Task CreateVipTestTable(string connectionString)
+    static async Task CreateVipTestTable()
     {
         try
         {
-            await using var dbConnection = new MySqlConnection(connectionString);
+            await using var dbConnection = new MySqlConnection(_dbConnectionString);
             dbConnection.Open();
 
             var createKeysTable = @"
@@ -1000,6 +1078,7 @@ public class LiteVip : BasePlugin
             {
                 VipTestEnabled = true,
                 VipTestTime = 3600,
+                VipTestCooldown = 3600,
                 VipTestGroup = "GROUP_NAME",
                 VipTestCount = 1
             },
@@ -1016,6 +1095,7 @@ public class LiteVip : BasePlugin
                         Healthshot = 1,
                         JumpsCount = 2,
                         RainbowModel = true,
+                        Respawn = 2,
                         Items = new List<string> { "weapon_molotov", "weapon_ak47" },
                         DecoySettings = new Decoy
                             { DecoyTeleport = true, DecoyCountInOneRound = 1, DecoyCountToBeIssued = 1 }
@@ -1067,6 +1147,7 @@ public class VipTestSettings
 {
     public bool VipTestEnabled { get; init; }
     public int VipTestTime { get; init; }
+    public int VipTestCooldown { get; init; }
     public required string VipTestGroup { get; init; }
     public int VipTestCount { get; init; }
 }

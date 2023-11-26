@@ -11,7 +11,9 @@ public class VipGroup
     public string? SmokeColor { get; init; }
     public int? Healthshot { get; init; }
     public int? JumpsCount { get; init; }
+    //public bool? Bhop { get; init; }
     public bool? RainbowModel { get; init; }
+    public int? Respawn { get; init; }
     public List<string>? Items { get; init; }
     public Decoy? DecoySettings { get; init; }
 }

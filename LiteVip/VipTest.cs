@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using CounterStrikeSharp.API;
 using Dapper;
 using MySqlConnector;
 
@@ -57,7 +58,7 @@ public class VipTest
         }
     }
     
-    public async Task UpdateUserVipTestCount(string steamId, long additionalCount)
+    public async Task UpdateUserVipTestCount(string steamId, long additionalCount, int endTime)
     {
         try
         {
@@ -66,10 +67,17 @@ public class VipTest
 
             var updateCountQuery = @"
             UPDATE `litevip_test`
-            SET `Count` = `Count` + @AdditionalCount
+            SET 
+                `Count` = `Count` + @AdditionalCount,
+                `EndTime` = @EndTime
             WHERE `SteamId` = @SteamId;";
 
-            await dbConnection.ExecuteAsync(updateCountQuery, new { SteamId = steamId, AdditionalCount = additionalCount });
+            await dbConnection.ExecuteAsync(updateCountQuery, new
+            {
+                SteamId = steamId, 
+                AdditionalCount = additionalCount, 
+                EndTime = endTime
+            });
         }
         catch (Exception e)
         {
@@ -77,22 +85,23 @@ public class VipTest
         }
     }
 
-    public async Task<long?> GetVipTestCount(string steamId)
+    public async Task<(int Count, long EndTime)> GetVipTestCount(string steamId)
     {
         try
         {
             await using var dbConnection = new MySqlConnection(_dbConnectionString);
             dbConnection.Open();
 
-            var selectCountQuery = @"
-            SELECT `Count` FROM `litevip_test` WHERE `SteamId` = @SteamId;";
-
-            return await dbConnection.ExecuteScalarAsync<long?>(selectCountQuery, new { SteamId = steamId });
+            var result = await dbConnection.QuerySingleOrDefaultAsync<dynamic>(@"
+            SELECT `Count`, `EndTime` FROM `litevip_test` WHERE `SteamId` = @SteamId;",
+                new { SteamId = steamId });
+            
+            return result != null ? ((int)result.Count, (long)result.EndTime) : (0, 0);
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
-            return null;
+            return (0, 0);
         }
     }
 }
