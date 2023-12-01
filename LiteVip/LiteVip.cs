@@ -1,4 +1,4 @@
-﻿﻿using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Entities;
@@ -19,6 +20,7 @@ using MySqlConnector;
 
 namespace LiteVip;
 
+[MinimumApiVersion(87)]
 public class LiteVip : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
@@ -59,12 +61,12 @@ public class LiteVip : BasePlugin
             };
 
             Task.Run(() => OnClientConnectedAsync(Utilities.GetPlayerFromSlot(slot), slot));
-            
+
             Jumps[slot + 1] = 0;
             Respawn[slot + 1] = 0;
         });
 
-        RegisterListener<Listeners.OnClientAuthorized>((slot, steamId) =>
+        RegisterListener<Listeners.OnClientAuthorized>((slot, _) =>
         {
             var player = Utilities.GetPlayerFromSlot(slot);
 
@@ -76,9 +78,9 @@ public class LiteVip : BasePlugin
             foreach (var player in Utilities.GetPlayers()
                          .Where(player => player is { IsValid: true, IsBot: false, PawnIsAlive: true }))
             {
-                var index = player.EntityIndex!.Value.Value;
+                var index = player.Index;
                 if (Users[index] == null || UsersSettings[index] == null) continue;
-                
+
                 OnTick(player);
             }
         });
@@ -134,8 +136,8 @@ public class LiteVip : BasePlugin
     public void OnCommandRespawn(CCSPlayerController? controller, CommandInfo info)
     {
         if (controller == null) return;
-        var entityIndex = controller.EntityIndex!.Value.Value;
-        
+        var entityIndex = controller.Index;
+
         var group = GetUserVipGroup(controller);
 
         if (group == null) return;
@@ -151,8 +153,8 @@ public class LiteVip : BasePlugin
             PrintToChat(controller, "You should be dead!");
             return;
         }
-        
-        controller.PlayerPawn.Value.Respawn();
+
+        if (controller.PlayerPawn.Value != null) controller.PlayerPawn.Value.Respawn();
         Respawn[entityIndex] ++;
     }
 
@@ -238,7 +240,7 @@ public class LiteVip : BasePlugin
     {
         if (controller == null) return;
 
-        if (IsUserVip(controller.EntityIndex!.Value.Value))
+        if (IsUserVip(controller.Index))
         {
             PrintToChat(controller, "You already have VIP privileges.");
             return;
@@ -273,7 +275,7 @@ public class LiteVip : BasePlugin
 
             await RemoveKeyFromDb(key);
 
-            Users[player.EntityIndex!.Value.Value] = new User
+            Users[player.Index] = new User
             {
                 SteamId = steamId,
                 VipGroup = vipGroupAndTime.VipGroup,
@@ -299,7 +301,7 @@ public class LiteVip : BasePlugin
 
         if (!vipTestSettings.VipTestEnabled) return;
 
-        if (IsUserVip(controller.EntityIndex!.Value.Value))
+        if (IsUserVip(controller.Index))
         {
             PrintToChat(controller, "You already have VIP privileges.");
             return;
@@ -320,7 +322,7 @@ public class LiteVip : BasePlugin
             PrintToChat(player, "You can no longer take the VIP Test");
             return;
         }
-        
+
         if (vipTestCount.EndTime > DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
             var time = DateTimeOffset.FromUnixTimeSeconds(vipTestCount.EndTime) -
@@ -331,7 +333,7 @@ public class LiteVip : BasePlugin
             PrintToChat(player, $"The VIP test can only be retaken through: {timeRemainingFormatted}");
             return;
         }
-        
+
         var endTime = DateTime.UtcNow.AddSeconds(vipTestSettings.VipTestTime).GetUnixEpoch();
         await AddUserToDb(new User
         {
@@ -340,12 +342,12 @@ public class LiteVip : BasePlugin
             StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
             EndVipTime = endTime
         });
-        
+
         var vipTestCooldown = DateTime.UtcNow.AddSeconds(vipTestSettings.VipTestCooldown).GetUnixEpoch();
 
         await AddUserOrUpdateVipTestAsync(steamId, vipTestCooldown, vipTest);
 
-        Users[player.EntityIndex!.Value.Value] = new User
+        Users[player.Index] = new User
         {
             SteamId = steamId,
             VipGroup = vipTestSettings.VipTestGroup,
@@ -405,10 +407,10 @@ public class LiteVip : BasePlugin
             if (userSettings != null)
                 userSettings.DecoyCount = 0;
         }
-        
+
         foreach (var player in Utilities.GetPlayers())
         {
-            var entityIndex = player.EntityIndex!.Value.Value;
+            var entityIndex = player.Index;
             if (Respawn[entityIndex] != null)
                 Respawn[entityIndex] = 0;
         }
@@ -421,12 +423,12 @@ public class LiteVip : BasePlugin
         if (@event.Userid == null) return HookResult.Continue;
 
         var controller = @event.Userid;
-        var entityIndex = controller.EntityIndex!.Value.Value;
+        var entityIndex = controller.Index;
 
         var user = Users[entityIndex];
         if (user == null) return HookResult.Continue;
 
-        if (!_config.Groups.TryGetValue(Users[controller.EntityIndex!.Value.Value]!.VipGroup, out var group))
+        if (!_config.Groups.TryGetValue(Users[controller.Index]!.VipGroup, out var group))
             return HookResult.Continue;
 
         if (group.DecoySettings == null) return HookResult.Continue;
@@ -435,7 +437,7 @@ public class LiteVip : BasePlugin
         if (!UsersSettings[entityIndex]!.IsDecoy) return HookResult.Continue;
 
         var pDecoyFiring = @event;
-        var bodyComponent = @event.Userid.PlayerPawn.Value.CBodyComponent?.SceneNode;
+        var bodyComponent = @event.Userid.PlayerPawn.Value?.CBodyComponent?.SceneNode;
 
         if (bodyComponent == null) return HookResult.Continue;
 
@@ -452,7 +454,7 @@ public class LiteVip : BasePlugin
 
         new CBaseCSGrenadeProjectile(decoyIndex).Remove();
 
-        UsersSettings[entityIndex]!.DecoyCount++;
+        UsersSettings[entityIndex]!.DecoyCount ++;
 
         return HookResult.Continue;
     }
@@ -475,55 +477,55 @@ public class LiteVip : BasePlugin
         var group = GetUserVipGroup(controller);
 
         if (group == null) return;
-        
-        var userSettings = UsersSettings[controller.EntityIndex!.Value.Value]!;
+
+        var userSettings = UsersSettings[controller.Index]!;
 
         var playerPawnValue = controller.PlayerPawn.Value;
         var moneyServices = controller.InGameMoneyServices;
 
         if (group.Health != null)
             if (userSettings.IsHealth)
-                playerPawnValue.Health = group.Health.Value;
+                if (playerPawnValue != null)
+                    playerPawnValue.Health = group.Health.Value;
 
         if (group.Armor != null)
             if (userSettings.IsArmor)
-                playerPawnValue.ArmorValue = group.Armor.Value;
+                if (playerPawnValue != null)
+                    playerPawnValue.ArmorValue = group.Armor.Value;
 
         if (group.Gravity != null)
             if (userSettings.IsGravity)
-                playerPawnValue.GravityScale = group.Gravity.Value;
+                if (playerPawnValue != null)
+                    playerPawnValue.GravityScale = group.Gravity.Value;
 
-        if (playerPawnValue.ItemServices != null)
+        if (playerPawnValue != null && playerPawnValue.ItemServices != null)
         {
-            if (group.DecoySettings is { DecoyTeleport: true } && userSettings.IsDecoy && group.DecoySettings.DecoyCountToBeIssued > 0)
+            if (group.DecoySettings is { DecoyTeleport: true } && userSettings.IsDecoy &&
+                group.DecoySettings.DecoyCountToBeIssued > 0)
             {
                 const string decoy = "weapon_decoy";
-                for (var i = 0; i < group.DecoySettings.DecoyCountToBeIssued; i++)
+                for (var i = 0; i < group.DecoySettings.DecoyCountToBeIssued; i ++)
                 {
                     if (!HasItem(controller, decoy))
-                    {
                         GiveItem(controller, decoy);
-                    }
                 }
             }
 
             if (group.Healthshot != null && userSettings.IsHealthshot && group.Healthshot.Value > 0)
             {
                 const string healthShot = "weapon_healthshot";
-                var countHealthshot = playerPawnValue.WeaponServices?.MyWeapons.Count(w => w.Value.DesignerName == healthShot);
+                var countHealthshot =
+                    playerPawnValue.WeaponServices?.MyWeapons.Count(w => w.Value?.DesignerName == healthShot);
 
-                Server.PrintToChatAll($"Healthshot: {group.Healthshot.Value} - {countHealthshot} = {group.Healthshot.Value - countHealthshot}");
-                for (var i = 0; i < group.Healthshot.Value - countHealthshot; i++)
-                {
+                for (var i = 0; i < group.Healthshot.Value - countHealthshot; i ++)
                     GiveItem(controller, healthShot);
-                }
             }
 
             if (group.Items != null && userSettings.IsItems && group.Items.Count > 0)
             {
                 foreach (var item in group.Items)
                 {
-                    if (!playerPawnValue.WeaponServices?.MyWeapons?.Any(w => w.Value.DesignerName == item) ?? true)
+                    if (!playerPawnValue.WeaponServices?.MyWeapons?.Any(w => w.Value?.DesignerName == item) ?? true)
                         GiveItem(controller, item);
                 }
             }
@@ -542,8 +544,12 @@ public class LiteVip : BasePlugin
                 {
                     userSettings.RainbowTimer?.Kill();
                     userSettings.RainbowTimer = AddTimer(1.4f,
-                        () => Timer_SetRainbowModel(playerPawnValue, Random.Shared.Next(0, 255),
-                            Random.Shared.Next(0, 255), Random.Shared.Next(0, 255)),
+                        () =>
+                        {
+                            if (playerPawnValue != null)
+                                Timer_SetRainbowModel(playerPawnValue, Random.Shared.Next(0, 255),
+                                    Random.Shared.Next(0, 255), Random.Shared.Next(0, 255));
+                        },
                         TimerFlags.REPEAT);
                 }
             }
@@ -556,28 +562,29 @@ public class LiteVip : BasePlugin
 
     private bool HasItem(CCSPlayerController player, string item)
     {
-        foreach (var weapon in player.PlayerPawn.Value.WeaponServices.MyWeapons)
+        foreach (var weapon in player.PlayerPawn.Value?.WeaponServices?.MyWeapons!)
         {
-            if (!weapon.Value.DesignerName.Contains(item)) continue;
+            if (weapon.Value != null && !weapon.Value.DesignerName.Contains(item)) continue;
 
             return true;
         }
+
         return false;
     }
 
     public VipGroup? GetUserVipGroup(CCSPlayerController player)
     {
-        var user = Users[player.EntityIndex!.Value.Value];
-        
+        var user = Users[player.Index];
+
         if (user == null) return null;
         if (!IsUserInDatabase(new SteamID(player.SteamID).SteamId2, user.VipGroup)) return null;
-        
+
         return !_config.Groups.TryGetValue(user.VipGroup, out var group) ? null : group;
     }
-    
+
     private static void OnTick(CCSPlayerController player)
     {
-        var client = player.EntityIndex!.Value.Value;
+        var client = player.Index;
         var user = Users[client];
 
         if (user == null)
@@ -586,7 +593,7 @@ public class LiteVip : BasePlugin
         {
             if (_config.Groups.TryGetValue(user.VipGroup, out var group))
             {
-                if(group.JumpsCount == null)
+                if (group.JumpsCount == null)
                     Jumps[client] = _config.JumpsNoVip;
                 else
                     Jumps[client] = group.JumpsCount;
@@ -594,28 +601,31 @@ public class LiteVip : BasePlugin
         }
 
         var playerPawn = player.PlayerPawn.Value;
-        var flags = (PlayerFlags)playerPawn.Flags;
-        var buttons = player.Buttons;
-
-        if (!UsersSettings[client]!.IsJumps) return;
-
-        if ((UsersSettings[client]!.LastFlags & PlayerFlags.FL_ONGROUND) != 0 &&
-            (flags & PlayerFlags.FL_ONGROUND) == 0 &&
-            (UsersSettings[client]!.LastButtons & PlayerButtons.Jump) == 0 && (buttons & PlayerButtons.Jump) != 0)
-            UsersSettings[client]!.JumpsCount++;
-        else if ((flags & PlayerFlags.FL_ONGROUND) != 0)
-            UsersSettings[client]!.JumpsCount = 0;
-        else if ((UsersSettings[client]!.LastButtons & PlayerButtons.Jump) == 0 &&
-                 (buttons & PlayerButtons.Jump) != 0 &&
-                 UsersSettings[client]!.JumpsCount < Jumps[client])
+        if (playerPawn != null)
         {
-            UsersSettings[client]!.JumpsCount++;
+            var flags = (PlayerFlags)playerPawn.Flags;
+            var buttons = player.Buttons;
 
-            playerPawn.AbsVelocity.Z = 300;
+            if (!UsersSettings[client]!.IsJumps) return;
+
+            if ((UsersSettings[client]!.LastFlags & PlayerFlags.FL_ONGROUND) != 0 &&
+                (flags & PlayerFlags.FL_ONGROUND) == 0 &&
+                (UsersSettings[client]!.LastButtons & PlayerButtons.Jump) == 0 && (buttons & PlayerButtons.Jump) != 0)
+                UsersSettings[client]!.JumpsCount ++;
+            else if ((flags & PlayerFlags.FL_ONGROUND) != 0)
+                UsersSettings[client]!.JumpsCount = 0;
+            else if ((UsersSettings[client]!.LastButtons & PlayerButtons.Jump) == 0 &&
+                     (buttons & PlayerButtons.Jump) != 0 &&
+                     UsersSettings[client]!.JumpsCount < Jumps[client])
+            {
+                UsersSettings[client]!.JumpsCount ++;
+
+                playerPawn.AbsVelocity.Z = 300;
+            }
+
+            UsersSettings[client]!.LastFlags = flags;
+            UsersSettings[client]!.LastButtons = buttons;
         }
-
-        UsersSettings[client]!.LastFlags = flags;
-        UsersSettings[client]!.LastButtons = buttons;
     }
 
 
@@ -628,26 +638,27 @@ public class LiteVip : BasePlugin
     {
         var menu = new ChatMenu("\x08--[ \x0CVIP MENU \x08]--");
         menu.AddMenuOption("Health", (player, option) =>
-            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsHealth ^= true,
+            TogglePlayerFunction(player, UsersSettings[player.Index]!.IsHealth ^= true,
                 option.Text));
         menu.AddMenuOption("Armor", (player, option) =>
-            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsArmor ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.Index]!.IsArmor ^= true, option.Text));
         menu.AddMenuOption("Gravity", (player, _) => AdjustPlayerGravity(player));
         menu.AddMenuOption("Healthshot", (player, option) =>
-            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsHealthshot ^= true,
+            TogglePlayerFunction(player, UsersSettings[player.Index]!.IsHealthshot ^= true,
                 option.Text));
         menu.AddMenuOption("Decoy Teleport", (player, option) =>
-            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsDecoy ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.Index]!.IsDecoy ^= true, option.Text));
         menu.AddMenuOption("Jumps", (player, option) =>
-            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsJumps ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.Index]!.IsJumps ^= true, option.Text));
         menu.AddMenuOption("Items", (player, option) =>
-            TogglePlayerFunction(player, UsersSettings[player.EntityIndex!.Value.Value]!.IsItems ^= true, option.Text));
+            TogglePlayerFunction(player, UsersSettings[player.Index]!.IsItems ^= true, option.Text));
         menu.AddMenuOption("Rainbow Model", (player, option) =>
         {
-            var entityIndex = player.EntityIndex!.Value.Value;
+            var entityIndex = player.Index;
 
             if (UsersSettings[entityIndex]!.IsRainbow)
-                Timer_SetRainbowModel(player.PlayerPawn.Value);
+                if (player.PlayerPawn.Value != null)
+                    Timer_SetRainbowModel(player.PlayerPawn.Value);
             UsersSettings[entityIndex]!.RainbowTimer?.Kill();
 
             TogglePlayerFunction(player, UsersSettings[entityIndex]!.IsRainbow ^= true, option.Text);
@@ -656,7 +667,7 @@ public class LiteVip : BasePlugin
         {
             if (player == null) return;
 
-            if (!IsUserVip(player.EntityIndex!.Value.Value))
+            if (!IsUserVip(player.Index))
             {
                 PrintToChat(player, "You do not have access to this command!");
                 return;
@@ -669,7 +680,7 @@ public class LiteVip : BasePlugin
             {
                 if (player == null) return;
 
-                if (!IsUserVip(player.EntityIndex!.Value.Value))
+                if (!IsUserVip(player.Index))
                 {
                     PrintToChat(player, "You do not have access to this command!");
                     return;
@@ -688,22 +699,23 @@ public class LiteVip : BasePlugin
     {
         if (controller == null) return;
 
-        if (Users[controller.EntityIndex!.Value.Value] == null) return;
+        if (Users[controller.Index] == null) return;
 
-        if (!_config.Groups.TryGetValue(Users[controller.EntityIndex!.Value.Value]!.VipGroup, out var group)) return;
+        if (!_config.Groups.TryGetValue(Users[controller.Index]!.VipGroup, out var group)) return;
 
-        var gravity = UsersSettings[controller.EntityIndex!.Value.Value]!.IsGravity ^= true;
+        var gravity = UsersSettings[controller.Index]!.IsGravity ^= true;
 
         if (!gravity)
         {
             PrintToChat(controller, "Gravity: \x02Off");
-            controller.PlayerPawn.Value.GravityScale = 1.0f;
+            if (controller.PlayerPawn.Value != null) controller.PlayerPawn.Value.GravityScale = 1.0f;
             return;
         }
 
         PrintToChat(controller, "Gravity: \x06On");
         if (group.Gravity != null)
-            controller.PlayerPawn.Value.GravityScale = group.Gravity.Value;
+            if (controller.PlayerPawn.Value != null)
+                controller.PlayerPawn.Value.GravityScale = group.Gravity.Value;
     }
 
     private void OnEntitySpawned(CEntityInstance entity)
@@ -715,7 +727,10 @@ public class LiteVip : BasePlugin
 
         Server.NextFrame(() =>
         {
-            var entityIndex = smokeGrenade.Thrower.Value.Controller.Value.EntityIndex!.Value.Value;
+            if (smokeGrenade.Thrower.Value == null) return;
+            if (smokeGrenade.Thrower.Value.Controller.Value == null) return;
+
+            var entityIndex = smokeGrenade.Thrower.Value.Controller.Value.Index;
 
             var user = Users[entityIndex];
             if (user == null) return;
