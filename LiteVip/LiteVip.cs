@@ -20,7 +20,7 @@ using MySqlConnector;
 
 namespace LiteVip;
 
-[MinimumApiVersion(87)]
+[MinimumApiVersion(95)]
 public class LiteVip : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
@@ -28,10 +28,11 @@ public class LiteVip : BasePlugin
     public override string ModuleVersion => "v1.0.7";
 
     private static string _dbConnectionString = string.Empty;
-    private static readonly User?[] Users = new User[65];
+    private static readonly User?[] Users = new User[Server.MaxPlayers];
     private static Config _config = null!;
-    private static readonly int?[] Jumps = new int?[65];
-    private static readonly int?[] Respawn = new int?[65];
+    private static readonly int?[] Jumps = new int?[Server.MaxPlayers];
+    private static readonly int?[] Respawn = new int?[Server.MaxPlayers];
+    private Timer?[] _timerGive = new Timer[Server.MaxPlayers];
 
     //private short _offsetRender;
     private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers];
@@ -64,6 +65,7 @@ public class LiteVip : BasePlugin
 
             Jumps[slot + 1] = 0;
             Respawn[slot + 1] = 0;
+            _timerGive[slot + 1] = null;
         });
 
         RegisterListener<Listeners.OnClientAuthorized>((slot, _) =>
@@ -91,6 +93,12 @@ public class LiteVip : BasePlugin
             UsersSettings[slot + 1] = null;
             Jumps[slot + 1] = null;
             Respawn[slot + 1] = null;
+            
+            if(_timerGive[slot + 1] != null)
+            {
+                _timerGive[slot + 1]!.Kill();
+                _timerGive[slot + 1] = null;
+            }
         });
 
         CreateMenu();
@@ -465,14 +473,14 @@ public class LiteVip : BasePlugin
 
         var controller = @event.Userid;
 
-        AddTimer(_config.Delay, () => Timer_Give(controller));
+        _timerGive[controller.Index] = AddTimer(_config.Delay, () => Timer_Give(controller));
 
         return HookResult.Continue;
     }
 
     private void Timer_Give(CCSPlayerController controller)
     {
-        if (controller.SteamID == 0 || !controller.IsValid) return;
+        if (!controller.IsValid || controller.SteamID == 0 || !controller.PlayerPawn.IsValid) return;
 
         var group = GetUserVipGroup(controller);
 
@@ -483,22 +491,21 @@ public class LiteVip : BasePlugin
         var playerPawnValue = controller.PlayerPawn.Value;
         var moneyServices = controller.InGameMoneyServices;
 
+        if (playerPawnValue == null) return;
+        
         if (group.Health != null)
             if (userSettings.IsHealth)
-                if (playerPawnValue != null)
-                    playerPawnValue.Health = group.Health.Value;
+                playerPawnValue.Health = group.Health.Value;
 
         if (group.Armor != null)
             if (userSettings.IsArmor)
-                if (playerPawnValue != null)
-                    playerPawnValue.ArmorValue = group.Armor.Value;
+                playerPawnValue.ArmorValue = group.Armor.Value;
 
         if (group.Gravity != null)
             if (userSettings.IsGravity)
-                if (playerPawnValue != null)
-                    playerPawnValue.GravityScale = group.Gravity.Value;
+                playerPawnValue.GravityScale = group.Gravity.Value;
 
-        if (playerPawnValue != null && playerPawnValue.ItemServices != null)
+        if (playerPawnValue.ItemServices != null)
         {
             if (group.DecoySettings is { DecoyTeleport: true } && userSettings.IsDecoy &&
                 group.DecoySettings.DecoyCountToBeIssued > 0)
@@ -531,6 +538,9 @@ public class LiteVip : BasePlugin
             }
         }
 
+        if (controller is { TeamNum: (int)CsTeam.CounterTerrorist, PawnHasDefuser: false }) 
+            GiveItem(controller, "item_defuser");
+
         if (group.Money != null)
             if (group.Money.Value != -1)
                 if (moneyServices != null)
@@ -546,8 +556,7 @@ public class LiteVip : BasePlugin
                     userSettings.RainbowTimer = AddTimer(1.4f,
                         () =>
                         {
-                            if (playerPawnValue != null)
-                                Timer_SetRainbowModel(playerPawnValue, Random.Shared.Next(0, 255),
+                            Timer_SetRainbowModel(playerPawnValue, Random.Shared.Next(0, 255),
                                     Random.Shared.Next(0, 255), Random.Shared.Next(0, 255));
                         },
                         TimerFlags.REPEAT);
@@ -572,7 +581,7 @@ public class LiteVip : BasePlugin
         return false;
     }
 
-    public VipGroup? GetUserVipGroup(CCSPlayerController player)
+    private VipGroup? GetUserVipGroup(CCSPlayerController player)
     {
         var user = Users[player.Index];
 
