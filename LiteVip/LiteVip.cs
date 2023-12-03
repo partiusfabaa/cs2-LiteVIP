@@ -61,8 +61,6 @@ public class LiteVip : BasePlugin
                 JumpsCount = 0, LastButtons = 0, LastFlags = 0
             };
 
-            Task.Run(() => OnClientConnectedAsync(Utilities.GetPlayerFromSlot(slot), slot));
-
             Jumps[slot + 1] = 0;
             Respawn[slot + 1] = 0;
             _timerGive[slot + 1] = null;
@@ -72,7 +70,7 @@ public class LiteVip : BasePlugin
         {
             var player = Utilities.GetPlayerFromSlot(slot);
 
-            Task.Run(() => OnClientAuthorizedAsync(player));
+            Task.Run(() => OnClientAuthorizedAsync(player, slot));
         });
 
         RegisterListener<Listeners.OnTick>(() =>
@@ -106,20 +104,7 @@ public class LiteVip : BasePlugin
         AddTimer(300, () => Task.Run(RemoveExpiredUsers), TimerFlags.REPEAT);
     }
 
-    private async Task OnClientAuthorizedAsync(CCSPlayerController player)
-    {
-        var user = await GetUserFromDb(new SteamID(player.SteamID));
-
-        if (user == null) return;
-
-        var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
-        var timeRemainingFormatted =
-            $"{timeRemaining.Days}d {timeRemaining.Hours:D2}:{timeRemaining.Minutes:D2}:{timeRemaining.Seconds:D2}";
-        PrintToChat(player,
-            $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08'{(user.EndVipTime == 0 ? "" : $", Expires in: \x06{timeRemainingFormatted}")}.");
-    }
-
-    private async Task OnClientConnectedAsync(CCSPlayerController player, int playerSlot)
+    private async Task OnClientAuthorizedAsync(CCSPlayerController player, int slot)
     {
         var msg = await RemoveExpiredUsers();
         PrintToServer(msg, ConsoleColor.DarkGreen);
@@ -130,7 +115,7 @@ public class LiteVip : BasePlugin
 
         if (!player.IsBot)
         {
-            Users[playerSlot + 1] = new User
+            Users[slot + 1] = new User
             {
                 SteamId = user.SteamId,
                 VipGroup = user.VipGroup,
@@ -138,8 +123,14 @@ public class LiteVip : BasePlugin
                 EndVipTime = user.EndVipTime
             };
         }
-    }
 
+        var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
+        var timeRemainingFormatted =
+            $"{timeRemaining.Days}d {timeRemaining.Hours:D2}:{timeRemaining.Minutes:D2}:{timeRemaining.Seconds:D2}";
+        PrintToChat(player,
+            $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08'{(user.EndVipTime == 0 ? "" : $", Expires in: \x06{timeRemainingFormatted}")}.");
+    }
+    
     [ConsoleCommand("css_vip_respawn")]
     public void OnCommandRespawn(CCSPlayerController? controller, CommandInfo info)
     {
