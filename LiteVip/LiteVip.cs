@@ -18,7 +18,6 @@ using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
 using Dapper;
 using MySqlConnector;
-using Timer = CounterStrikeSharp.API.Modules.Timers.Timer;
 
 namespace LiteVip;
 
@@ -34,7 +33,6 @@ public class LiteVip : BasePlugin
     private static Config _config = null!;
     private static readonly int?[] Jumps = new int?[Server.MaxPlayers];
     private static readonly int?[] Respawn = new int?[Server.MaxPlayers];
-    private readonly Timer?[] _timerGive = new Timer[Server.MaxPlayers];
 
     //private short _offsetRender;
     private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers];
@@ -65,8 +63,6 @@ public class LiteVip : BasePlugin
 
             Jumps[slot + 1] = 0;
             Respawn[slot + 1] = 0;
-
-            _timerGive[slot + 1] = null;
         });
 
         RegisterListener<Listeners.OnClientAuthorized>((slot, _) =>
@@ -95,7 +91,6 @@ public class LiteVip : BasePlugin
             UsersSettings[slot + 1] = null;
             Jumps[slot + 1] = null;
             Respawn[slot + 1] = null;
-            _timerGive[slot + 1] = null;
         });
 
         CreateMenu();
@@ -481,16 +476,14 @@ public class LiteVip : BasePlugin
 
         if (controller.IsBot || !controller.IsValid) return HookResult.Continue;
 
-        if (_timerGive[controller.Index] != null) return HookResult.Continue;
-
-        _timerGive[controller.Index] = AddTimer(_config.Delay, () => Timer_Give(controller));
+        AddTimer(_config.Delay, () => Timer_Give(controller));
 
         return HookResult.Continue;
     }
 
     private void Timer_Give(CCSPlayerController controller)
     {
-        if (controller.TeamNum < 2 || !controller.IsValid || controller.SteamID == 0) return;
+        if (!controller.IsValid || controller.SteamID == 0) return;
 
         var group = GetUserVipGroup(controller);
         
