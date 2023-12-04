@@ -12,6 +12,7 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Timers;
@@ -79,7 +80,7 @@ public class LiteVip : BasePlugin
             {
                 var index = player.Index;
                 if (Users[index] == null || UsersSettings[index] == null) continue;
-        
+
                 OnTick(player);
             }
         });
@@ -133,12 +134,12 @@ public class LiteVip : BasePlugin
         var id = 1;
         foreach (var playersVips in Utilities.GetPlayers().Where(u => u.IsValid))
         {
-            if(Users[playersVips.Index] == null) continue;
+            if (Users[playersVips.Index] == null) continue;
 
-            PrintToChat(controller, $"{id++}. {playersVips.PlayerName} - {Users[playersVips.Index]!.VipGroup}");
+            PrintToChat(controller, $"{id ++}. {playersVips.PlayerName} - {Users[playersVips.Index]!.VipGroup}");
         }
     }
-    
+
     [ConsoleCommand("css_vip_respawn")]
     public void OnCommandRespawn(CCSPlayerController? controller, CommandInfo info)
     {
@@ -387,7 +388,7 @@ public class LiteVip : BasePlugin
         if (controller != null)
             if (!_config.Admins.Contains(controller.SteamID))
             {
-                PrintToChat(controller, "\x08[ \x0CLITE-VIP \x08] you do not have access to this command");
+                PrintToChat(controller, "You do not have access to this command");
                 return;
             }
 
@@ -468,10 +469,10 @@ public class LiteVip : BasePlugin
 
     private HookResult EventPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
-        if (@event.Userid.Handle == IntPtr.Zero || 
-            @event.Userid.UserId == null || 
+        if (@event.Userid.Handle == IntPtr.Zero ||
+            @event.Userid.UserId == null ||
             @event.Userid.TeamNum < 2) return HookResult.Continue;
-        
+
         var controller = @event.Userid;
 
         if (controller.IsBot || !controller.IsValid) return HookResult.Continue;
@@ -483,73 +484,92 @@ public class LiteVip : BasePlugin
 
     private void Timer_Give(CCSPlayerController controller)
     {
-        if (!controller.IsValid || controller.SteamID == 0) return;
+        if (controller.TeamNum is not ((int)CsTeam.Terrorist or (int)CsTeam.CounterTerrorist) ||
+            !controller.IsValid || controller.SteamID == 0) return;
 
         var group = GetUserVipGroup(controller);
-        
+
         if (group == null) return;
-        
+
         var userSettings = UsersSettings[controller.Index]!;
-        
+
         var playerPawnValue = controller.PlayerPawn.Value;
-        
+
         if (playerPawnValue == null) return;
-        
+
         var moneyServices = controller.InGameMoneyServices;
-        
-        if (group.Health != null)
-            if (userSettings.IsHealth)
-                playerPawnValue.Health = group.Health.Value;
-        
-        if (group.Armor != null)
-            if (userSettings.IsArmor)
-                playerPawnValue.ArmorValue = group.Armor.Value;
-        
-        if (group.Gravity != null)
-            if (userSettings.IsGravity)
-                playerPawnValue.GravityScale = group.Gravity.Value;
-        
-        if (playerPawnValue.ItemServices != null)
+
+        var gamerules = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").First().GameRules;
+        var halftime = ConVar.Find("mp_halftime")!.GetPrimitiveValue<bool>();
+        var maxrounds = ConVar.Find("mp_maxrounds")!.GetPrimitiveValue<int>();
+
+        var disableAllOrPartial = -1;
+        if (gamerules != null)
+            if (gamerules.TotalRoundsPlayed == 0 || (halftime && maxrounds / 2 == gamerules.TotalRoundsPlayed))
+                disableAllOrPartial = _config.DisableAllOrPartial;
+
+        if (disableAllOrPartial != 2)
         {
-            if (group.DecoySettings is { DecoyTeleport: true } && userSettings.IsDecoy &&
-                group.DecoySettings.DecoyCountToBeIssued > 0)
-            {
-                const string decoy = "weapon_decoy";
-                for (var i = 0; i < group.DecoySettings.DecoyCountToBeIssued; i ++)
+            if (group.Health != null)
+                if (userSettings.IsHealth)
                 {
-                    if (!HasItem(controller, decoy))
-                        GiveItem(controller, decoy);
+                    playerPawnValue.Health = group.Health.Value;
+                    playerPawnValue.MaxHealth = group.Health.Value;
                 }
-            }
-        
-            if (group.Healthshot != null && userSettings.IsHealthshot && group.Healthshot.Value > 0)
-            {
-                const string healthShot = "weapon_healthshot";
-                var countHealthshot =
-                    playerPawnValue.WeaponServices?.MyWeapons.Count(w => w.Value?.DesignerName == healthShot);
-        
-                for (var i = 0; i < group.Healthshot.Value - countHealthshot; i ++)
-                    GiveItem(controller, healthShot);
-            }
-        
-            if (group.Items != null && userSettings.IsItems && group.Items.Count > 0)
-            {
-                foreach (var item in group.Items)
-                {
-                    if (!playerPawnValue.WeaponServices?.MyWeapons?.Any(w => w.Value?.DesignerName == item) ?? true)
-                        GiveItem(controller, item);
-                }
-            }
+
+            if (group.Armor != null)
+                if (userSettings.IsArmor)
+                    playerPawnValue.ArmorValue = group.Armor.Value;
+
+            if (group.Gravity != null)
+                if (userSettings.IsGravity)
+                    playerPawnValue.GravityScale = group.Gravity.Value;
         }
-        
-        if (controller is { TeamNum: (int)CsTeam.CounterTerrorist, PawnHasDefuser: false })
-            GiveItem(controller, "item_defuser");
-        
-        if (group.Money != null)
-            if (group.Money.Value != -1)
-                if (moneyServices != null)
-                    moneyServices.Account = group.Money.Value;
-        
+
+        if (disableAllOrPartial is not (1 or 2))
+        {
+            if (group.Money != null)
+                if (group.Money.Value != -1)
+                    if (moneyServices != null)
+                        moneyServices.Account += group.Money.Value;
+
+            if (playerPawnValue.ItemServices != null)
+            {
+                if (group.DecoySettings is { DecoyTeleport: true } && userSettings.IsDecoy &&
+                    group.DecoySettings.DecoyCountToBeIssued > 0)
+                {
+                    const string decoy = "weapon_decoy";
+                    for (var i = 0; i < group.DecoySettings.DecoyCountToBeIssued; i ++)
+                    {
+                        if (!HasItem(controller, decoy))
+                            GiveItem(controller, decoy);
+                    }
+                }
+
+                if (group.Healthshot != null && userSettings.IsHealthshot && group.Healthshot.Value > 0)
+                {
+                    const string healthShot = "weapon_healthshot";
+                    var countHealthshot =
+                        playerPawnValue.WeaponServices?.MyWeapons.Count(w => w.Value?.DesignerName == healthShot);
+
+                    for (var i = 0; i < group.Healthshot.Value - countHealthshot; i ++)
+                        GiveItem(controller, healthShot);
+                }
+
+                if (group.Items != null && userSettings.IsItems && group.Items.Count > 0)
+                {
+                    foreach (var item in group.Items)
+                    {
+                        if (!HasItem(controller, item))
+                            GiveItem(controller, item);
+                    }
+                }
+            }
+
+            if (controller is { TeamNum: (int)CsTeam.CounterTerrorist, PawnHasDefuser: false })
+                GiveItem(controller, "item_defuser");
+        }
+
         if (group.RainbowModel != null)
         {
             if (group.RainbowModel.Value)
@@ -571,6 +591,17 @@ public class LiteVip : BasePlugin
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"Player {controller.PlayerName} has gained Health: {group.Health} | Armor: {group.Armor}");
         Console.ResetColor();
+    }
+
+    // private int GetPlayerItemsCount(CCSPlayerController player, string item)
+    // {
+    //     return player.PlayerPawn.Value?.WeaponServices?.MyWeapons.Count(w =>
+    //         w.Value != null && w.Value.DesignerName == item) ?? 0;
+    // }
+
+    private void GiveItem(CCSPlayerController handle, string item)
+    {
+        handle.GiveNamedItem(item);
     }
 
     private bool HasItem(CCSPlayerController player, string item)
@@ -632,7 +663,6 @@ public class LiteVip : BasePlugin
                      UsersSettings[client]!.JumpsCount < Jumps[client])
             {
                 UsersSettings[client]!.JumpsCount ++;
-
                 playerPawn.AbsVelocity.Z = 300;
             }
 
@@ -763,11 +793,6 @@ public class LiteVip : BasePlugin
                 ? Random.Shared.NextSingle() * 255.0f
                 : float.Parse(split[2]);
         });
-    }
-
-    private void GiveItem(CCSPlayerController handle, string item)
-    {
-        handle.GiveNamedItem(item);
     }
 
     private string BuildConnectionString()
@@ -1099,6 +1124,7 @@ public class LiteVip : BasePlugin
     {
         var config = new Config
         {
+            DisableAllOrPartial = 1, // 0 - off, 1 - items and money, 2 all
             JumpsNoVip = 2,
             Admins = new List<ulong>(),
             Delay = 2.0f,
@@ -1143,7 +1169,7 @@ public class LiteVip : BasePlugin
             JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
 
         Console.ForegroundColor = ConsoleColor.DarkGreen;
-        Console.WriteLine("[LITE-VIP] The configuration was successfully saved to a file: " + configPath);
+        Console.WriteLine("[LiteVip] The configuration was successfully saved to a file: " + configPath);
         Console.ResetColor();
 
         return config;
@@ -1163,6 +1189,7 @@ public static class GetUnixTime
 
 public class Config
 {
+    public int DisableAllOrPartial { get; set; }
     public int JumpsNoVip { get; set; }
     public List<ulong> Admins { get; set; } = null!;
     public float Delay { get; set; }
