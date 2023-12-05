@@ -542,13 +542,7 @@ public class LiteVip : BasePlugin
                 if (group.Money.Value != -1)
                 {
                     if (moneyServices != null)
-                    {
-                        var limitMoney = 30000;
-
                         moneyServices.Account += group.Money.Value;
-                        if (moneyServices.Account >= limitMoney)
-                            moneyServices.Account = limitMoney;
-                    }
                 }
             }
 
