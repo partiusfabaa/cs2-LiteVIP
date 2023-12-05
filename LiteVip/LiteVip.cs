@@ -66,11 +66,12 @@ public class LiteVip : BasePlugin
             Respawn[slot + 1] = 0;
         });
 
-        RegisterListener<Listeners.OnClientAuthorized>((slot, _) =>
+        RegisterListener<Listeners.OnClientAuthorized>((slot, id) =>
         {
             var player = Utilities.GetPlayerFromSlot(slot);
+            if (player.IsBot) return;
 
-            Task.Run(() => OnClientAuthorizedAsync(player, slot));
+            Task.Run(() => OnClientAuthorizedAsync(player, slot, id));
         });
 
         RegisterListener<Listeners.OnTick>(() =>
@@ -99,31 +100,31 @@ public class LiteVip : BasePlugin
         AddTimer(300, () => Task.Run(RemoveExpiredUsers), TimerFlags.REPEAT);
     }
 
-    private async Task OnClientAuthorizedAsync(CCSPlayerController player, int slot)
+    private async Task OnClientAuthorizedAsync(CCSPlayerController player, int slot, SteamID steamId)
     {
         var msg = await RemoveExpiredUsers();
         PrintToServer(msg, ConsoleColor.DarkGreen);
 
-        var user = await GetUserFromDb(new SteamID(player.SteamID));
+        var user = await GetUserFromDb(steamId);
 
         if (user == null) return;
 
-        if (!player.IsBot)
+        Users[slot + 1] = new User
         {
-            Users[slot + 1] = new User
-            {
-                SteamId = user.SteamId,
-                VipGroup = user.VipGroup,
-                StartVipTime = user.StartVipTime,
-                EndVipTime = user.EndVipTime
-            };
-        }
+            SteamId = user.SteamId,
+            VipGroup = user.VipGroup,
+            StartVipTime = user.StartVipTime,
+            EndVipTime = user.EndVipTime
+        };
 
         var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
         var timeRemainingFormatted =
             $"{timeRemaining.Days}d {timeRemaining.Hours:D2}:{timeRemaining.Minutes:D2}:{timeRemaining.Seconds:D2}";
-        PrintToChat(player,
-            $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08'{(user.EndVipTime == 0 ? "" : $", Expires in: \x06{timeRemainingFormatted}")}.");
+        Server.NextFrame(() =>
+        {
+            PrintToChat(player,
+                $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08'{(user.EndVipTime == 0 ? "" : $", Expires in: \x06{timeRemainingFormatted}")}.");
+        });
     }
 
     [ConsoleCommand("css_vips")]
@@ -262,13 +263,14 @@ public class LiteVip : BasePlugin
 
         var key = ParseCommandArguments(command.ArgString);
 
-        Task.Run(() => GivePlayerVipByKey(controller, key[0]));
+        var steamId = new SteamID(controller.SteamID).SteamId2;
+        Task.Run(() => GivePlayerVipByKey(controller,steamId, key[0]));
     }
 
-    private async void GivePlayerVipByKey(CCSPlayerController player, string key)
+    private async void GivePlayerVipByKey(CCSPlayerController player, string steamId, string key)
     {
         var vipGroupAndTime = await GetVipGroupAndTimeByKey(key);
-        var steamId = new SteamID(player.SteamID).SteamId2;
+
         if (!string.IsNullOrEmpty(vipGroupAndTime.VipGroup))
         {
             await AddUserToDb(new User
@@ -283,21 +285,25 @@ public class LiteVip : BasePlugin
 
             await RemoveKeyFromDb(key);
 
-            Users[player.Index] = new User
+            Server.NextFrame(() =>
             {
-                SteamId = steamId,
-                VipGroup = vipGroupAndTime.VipGroup,
-                StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
-                EndVipTime = vipGroupAndTime.Time == 0
-                    ? 0
-                    : DateTime.UtcNow.AddSeconds(vipGroupAndTime.Time).GetUnixEpoch()
-            };
+                Users[player.Index] = new User
+                {
+                    SteamId = steamId,
+                    VipGroup = vipGroupAndTime.VipGroup,
+                    StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
+                    EndVipTime = vipGroupAndTime.Time == 0
+                        ? 0
+                        : DateTime.UtcNow.AddSeconds(vipGroupAndTime.Time).GetUnixEpoch()
+                };
+            });
 
-            PrintToChat(player,
-                $"Key '{key}' has been successfully activated! You are now a member of the VIP group '{vipGroupAndTime.VipGroup}'");
+            Server.NextFrame(() => PrintToChat(player,
+                $"Key '{key}' has been successfully activated! You are now a member of the VIP group '{vipGroupAndTime.VipGroup}'"));
         }
         else
-            PrintToChat(player, $"Failed to activate key '{key}'. Please check if the key is valid.");
+            Server.NextFrame(() =>
+                PrintToChat(player, $"Failed to activate key '{key}'. Please check if the key is valid."));
     }
 
     [ConsoleCommand("css_viptest")]
@@ -321,13 +327,15 @@ public class LiteVip : BasePlugin
     private async void GivePlayerVipTest(CCSPlayerController player, VipTestSettings vipTestSettings)
     {
         var vipTest = new VipTest(_dbConnectionString);
-        var steamId = new SteamID(player.SteamID).SteamId2;
+
+        var steamId = string.Empty;
+        Server.NextFrame(() => steamId = new SteamID(player.SteamID).SteamId2);
 
         var vipTestCount = await vipTest.GetVipTestCount(steamId);
 
         if (vipTestCount.Count >= vipTestSettings.VipTestCount)
         {
-            PrintToChat(player, "You can no longer take the VIP Test");
+            Server.NextFrame(() => PrintToChat(player, "You can no longer take the VIP Test"));
             return;
         }
 
@@ -338,7 +346,8 @@ public class LiteVip : BasePlugin
             var timeRemainingFormatted =
                 $"{(time.Days == 0 ? "" : $"{time.Days}d")} {time.Hours:D2}:{time.Minutes:D2}:{time.Seconds:D2}";
 
-            PrintToChat(player, $"The VIP test can only be retaken through: {timeRemainingFormatted}");
+            Server.NextFrame(() =>
+                PrintToChat(player, $"The VIP test can only be retaken through: {timeRemainingFormatted}"));
             return;
         }
 
@@ -355,18 +364,18 @@ public class LiteVip : BasePlugin
 
         await AddUserOrUpdateVipTestAsync(steamId, vipTestCooldown, vipTest);
 
-        Users[player.Index] = new User
+        Server.NextFrame(() => Users[player.Index] = new User
         {
             SteamId = steamId,
             VipGroup = vipTestSettings.VipTestGroup,
             StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
             EndVipTime = endTime
-        };
+        });
 
         var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(endTime) - DateTimeOffset.UtcNow;
 
-        PrintToChat(player,
-            $"You have successfully received the 'VIP Test'! Ends in {timeRemaining.ToString(timeRemaining.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss")}");
+        Server.NextFrame(() => PrintToChat(player,
+            $"You have successfully received the 'VIP Test'! Ends in {timeRemaining.ToString(timeRemaining.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss")}"));
     }
 
     private async Task AddUserOrUpdateVipTestAsync(string steamId, int endTime, VipTest vipTest)
@@ -529,9 +538,19 @@ public class LiteVip : BasePlugin
         if (disableAllOrPartial is not (1 or 2))
         {
             if (group.Money != null)
+            {
                 if (group.Money.Value != -1)
+                {
                     if (moneyServices != null)
+                    {
+                        var limitMoney = 30000;
+
                         moneyServices.Account += group.Money.Value;
+                        if (moneyServices.Account >= limitMoney)
+                            moneyServices.Account = limitMoney;
+                    }
+                }
+            }
 
             if (playerPawnValue.ItemServices != null)
             {
