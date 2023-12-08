@@ -116,12 +116,15 @@ public class LiteVip : BasePlugin
         };
 
         var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
-        var timeRemainingFormatted =
-            $"{timeRemaining.Days}d {timeRemaining.Hours:D2}:{timeRemaining.Minutes:D2}:{timeRemaining.Seconds:D2}";
+        var formattedTime =
+            $"{(timeRemaining.Days >= 0 ? $"\x04{timeRemaining.Days}\x08 Days, " : "")}" +
+            $"{(timeRemaining.Hours > 0 ? $"\x04{timeRemaining.Hours}\x08 Hours, " : "")}" +
+            $"{(timeRemaining.Minutes > 0 ? $"\x04{timeRemaining.Minutes}\x08 Minutes, " : "")}" +
+            $"{(timeRemaining.Seconds > 0 ? $"\x04{timeRemaining.Seconds}\x08 Seconds" : "")}";
         Server.NextFrame(() =>
         {
             PrintToChat(player,
-                $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08'{(user.EndVipTime == 0 ? "" : $", Expires in: \x06{timeRemainingFormatted}")}.");
+                $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08'{(user.EndVipTime == 0 ? "" : $", Expires in: \x06{formattedTime}")}.");
         });
     }
 
