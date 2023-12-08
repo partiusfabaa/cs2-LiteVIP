@@ -21,7 +21,7 @@ using MySqlConnector;
 
 namespace LiteVip;
 
-[MinimumApiVersion(95)]
+[MinimumApiVersion(110)]
 public class LiteVip : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
@@ -319,17 +319,15 @@ public class LiteVip : BasePlugin
             return;
         }
 
-        Task.Run(() => GivePlayerVipTest(controller, vipTestSettings));
+        Task.Run(() => GivePlayerVipTest(controller, new SteamID(controller.SteamID), vipTestSettings));
     }
 
-    private async void GivePlayerVipTest(CCSPlayerController player, VipTestSettings vipTestSettings)
+    private async void GivePlayerVipTest(CCSPlayerController player, SteamID steamId,
+        VipTestSettings vipTestSettings)
     {
         var vipTest = new VipTest(_dbConnectionString);
 
-        var steamId = string.Empty;
-        Server.NextFrame(() => steamId = new SteamID(player.SteamID).SteamId2);
-
-        var vipTestCount = await vipTest.GetVipTestCount(steamId);
+        var vipTestCount = await vipTest.GetVipTestCount(steamId.SteamId2);
 
         if (vipTestCount.Count >= vipTestSettings.VipTestCount)
         {
@@ -352,7 +350,7 @@ public class LiteVip : BasePlugin
         var endTime = DateTime.UtcNow.AddSeconds(vipTestSettings.VipTestTime).GetUnixEpoch();
         await AddUserToDb(new User
         {
-            SteamId = steamId,
+            SteamId = steamId.SteamId2,
             VipGroup = vipTestSettings.VipTestGroup,
             StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
             EndVipTime = endTime
@@ -360,11 +358,11 @@ public class LiteVip : BasePlugin
 
         var vipTestCooldown = DateTime.UtcNow.AddSeconds(vipTestSettings.VipTestCooldown).GetUnixEpoch();
 
-        await AddUserOrUpdateVipTestAsync(steamId, vipTestCooldown, vipTest);
+        await AddUserOrUpdateVipTestAsync(steamId.SteamId2, vipTestCooldown, vipTest);
 
         Server.NextFrame(() => Users[player.Index] = new User
         {
-            SteamId = steamId,
+            SteamId = steamId.SteamId2,
             VipGroup = vipTestSettings.VipTestGroup,
             StartVipTime = DateTime.UtcNow.GetUnixEpoch(),
             EndVipTime = endTime
