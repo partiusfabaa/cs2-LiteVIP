@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
@@ -80,7 +79,6 @@ public class LiteVip : BasePlugin
                          .Where(player => player is { IsValid: true, IsBot: false, PawnIsAlive: true }))
             {
                 var index = player.Index;
-                if (Users[index] == null || UsersSettings[index] == null) continue;
 
                 OnTick(player);
             }
@@ -264,7 +262,7 @@ public class LiteVip : BasePlugin
         var key = ParseCommandArguments(command.ArgString);
 
         var steamId = new SteamID(controller.SteamID).SteamId2;
-        Task.Run(() => GivePlayerVipByKey(controller,steamId, key[0]));
+        Task.Run(() => GivePlayerVipByKey(controller, steamId, key[0]));
     }
 
     private async void GivePlayerVipByKey(CCSPlayerController player, string steamId, string key)
@@ -478,9 +476,7 @@ public class LiteVip : BasePlugin
 
     private HookResult EventPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
-        if (@event.Userid.Handle == IntPtr.Zero ||
-            @event.Userid.UserId == null ||
-            @event.Userid.TeamNum < 2) return HookResult.Continue;
+        if (@event.Userid.Handle == IntPtr.Zero || @event.Userid.UserId == null) return HookResult.Continue;
 
         var controller = @event.Userid;
 
@@ -650,7 +646,7 @@ public class LiteVip : BasePlugin
         {
             if (_config.Groups.TryGetValue(user.VipGroup, out var group))
             {
-                if (group.JumpsCount == null)
+                if (group.JumpsCount == null || Users[client] == null)
                     Jumps[client] = _config.JumpsNoVip;
                 else
                     Jumps[client] = group.JumpsCount;
@@ -663,6 +659,7 @@ public class LiteVip : BasePlugin
             var flags = (PlayerFlags)playerPawn.Flags;
             var buttons = player.Buttons;
 
+            if (UsersSettings[client] == null) return;
             if (!UsersSettings[client]!.IsJumps) return;
 
             if ((UsersSettings[client]!.LastFlags & PlayerFlags.FL_ONGROUND) != 0 &&
