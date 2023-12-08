@@ -117,7 +117,7 @@ public class LiteVip : BasePlugin
 
         var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
         var formattedTime =
-            $"{(timeRemaining.Days >= 0 ? $"\x04{timeRemaining.Days}\x08 Days, " : "")}" +
+            $"{(timeRemaining.Days > 0 ? $"\x04{timeRemaining.Days}\x08 Days, " : "")}" +
             $"{(timeRemaining.Hours > 0 ? $"\x04{timeRemaining.Hours}\x08 Hours, " : "")}" +
             $"{(timeRemaining.Minutes > 0 ? $"\x04{timeRemaining.Minutes}\x08 Minutes, " : "")}" +
             $"{(timeRemaining.Seconds > 0 ? $"\x04{timeRemaining.Seconds}\x08 Seconds" : "")}";
