@@ -29,13 +29,13 @@ public class LiteVip : BasePlugin
     public override string ModuleVersion => "v1.0.7";
 
     private static string _dbConnectionString = string.Empty;
-    private static readonly User?[] Users = new User[Server.MaxPlayers];
+    private static readonly User?[] Users = new User[Server.MaxPlayers + 1];
     private static Config _config = null!;
-    private static readonly int?[] Jumps = new int?[Server.MaxPlayers];
-    private static readonly int?[] Respawn = new int?[Server.MaxPlayers];
+    private static readonly int?[] Jumps = new int?[Server.MaxPlayers + 1];
+    private static readonly int?[] Respawn = new int?[Server.MaxPlayers + 1];
 
     //private short _offsetRender;
-    private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers];
+    private static readonly UserSettings?[] UsersSettings = new UserSettings?[Server.MaxPlayers + 1];
 
     public override void Load(bool hotReload)
     {
@@ -78,8 +78,6 @@ public class LiteVip : BasePlugin
             foreach (var player in Utilities.GetPlayers()
                          .Where(player => player is { IsValid: true, IsBot: false, PawnIsAlive: true }))
             {
-                var index = player.Index;
-
                 OnTick(player);
             }
         });
@@ -426,9 +424,8 @@ public class LiteVip : BasePlugin
 
         foreach (var player in Utilities.GetPlayers())
         {
-            var entityIndex = player.Index;
-            if (Respawn[entityIndex] != null)
-                Respawn[entityIndex] = 0;
+            if (Respawn[player.Index] != null)
+                Respawn[player.Index] = 0;
         }
 
         return HookResult.Continue;
