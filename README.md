@@ -16,6 +16,7 @@ The config is created automatically in the same place where the dll is located
 
 Now it is not necessary to write all parameters to a group, you can delete those that are not needed for a particular group
 {
+  "DisableAllOrPartial": 2, 	// Should I disable VIP in the first round, and in the second half? 0 - no, 1 - items and money, 2 - everything
   "JumpsNoVip": 1,
   "Admins": [76561144096558223],//SteamID64 should be separated by commas
   "Delay": 2,			//At what interval to issue the VIP(second)
@@ -73,6 +74,7 @@ Now it is not necessary to write all parameters to a group, you can delete those
 | `css_vip_respawn` or `!vip_respawn` | allows the player to be revived |
 | `css_vip_key key` or `!vip_key key` | allows the user to activate a key with VIP privileges. |
 | `css_viptest` or `!viptest` | allows the user to take the VIP test |
+| `css_vips` or `!vips` | shows vip players online |
 
 ### Commands for chief administrators
 
