@@ -16,12 +16,13 @@ using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
+using Microsoft.Extensions.Localization;
 using Dapper;
 using MySqlConnector;
 
 namespace LiteVip;
 
-[MinimumApiVersion(110)]
+[MinimumApiVersion(120)]
 public class LiteVip : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
@@ -85,10 +86,12 @@ public class LiteVip : BasePlugin
         RegisterListener<Listeners.OnClientDisconnectPost>(slot =>
         {
             Users[slot + 1] = null;
-            UsersSettings[slot + 1]!.RainbowTimer?.Kill();
-            UsersSettings[slot + 1] = null;
             Jumps[slot + 1] = null;
             Respawn[slot + 1] = null;
+            
+            if(UsersSettings[slot + 1] != null)
+                UsersSettings[slot + 1]!.RainbowTimer?.Kill();
+            UsersSettings[slot + 1] = null;
         });
 
         CreateMenu();
@@ -115,14 +118,16 @@ public class LiteVip : BasePlugin
 
         var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(user.EndVipTime) - DateTimeOffset.UtcNow;
         var formattedTime =
-            $"{(timeRemaining.Days > 0 ? $"\x04{timeRemaining.Days}\x08 Days, " : "")}" +
-            $"{(timeRemaining.Hours > 0 ? $"\x04{timeRemaining.Hours}\x08 Hours, " : "")}" +
-            $"{(timeRemaining.Minutes > 0 ? $"\x04{timeRemaining.Minutes}\x08 Minutes, " : "")}" +
-            $"{(timeRemaining.Seconds > 0 ? $"\x04{timeRemaining.Seconds}\x08 Seconds" : "")}";
+            $"{(timeRemaining.Days > 0 ? $"\x04{timeRemaining.Days:00}\x01 Days, " : "")}" +
+            $"{(timeRemaining.Hours > 0 ? $"\x04{timeRemaining.Hours:00}:" : "")}" +
+            $"{(timeRemaining.Minutes > 0 ? $"\x04{timeRemaining.Minutes:00}:" : "")}" +
+            $"{(timeRemaining.Seconds > 0 ? $"\x04{timeRemaining.Seconds:00}" : "")}";
+
         Server.NextFrame(() =>
         {
             PrintToChat(player,
-                $"Welcome to the server! You are a VIP player. Group: '\x0C{user.VipGroup}\x08'{(user.EndVipTime == 0 ? "" : $", Expires in: \x06{formattedTime}")}.");
+                Localizer["vip.WelcomeToTheServer", user.VipGroup,
+                    user.EndVipTime == 0 ? "never" : formattedTime]); // user.VipGroup
         });
     }
 
@@ -152,13 +157,13 @@ public class LiteVip : BasePlugin
 
         if (Respawn[entityIndex] >= group.Respawn)
         {
-            PrintToChat(controller, "You've already used all your respawns");
+            PrintToChat(controller, Localizer["vip.NoRevivals"]);
             return;
         }
 
         if (controller.PawnIsAlive)
         {
-            PrintToChat(controller, "You should be dead!");
+            PrintToChat(controller, Localizer["vip.YouShouldBeDead"]);
             return;
         }
 
@@ -184,7 +189,7 @@ public class LiteVip : BasePlugin
 
         if (!_config.Groups.ContainsKey(vipGroup))
         {
-            PrintToServer("This VIP group was not found!", ConsoleColor.DarkRed);
+            PrintToServer(Localizer["vip.GroupNotFound"], ConsoleColor.DarkRed);
             return;
         }
 
@@ -212,7 +217,7 @@ public class LiteVip : BasePlugin
 
         if (!_config.Groups.ContainsKey(vipGroup))
         {
-            PrintToServer("This VIP group was not found!", ConsoleColor.DarkRed);
+            PrintToServer(Localizer["vip.GroupNotFound"], ConsoleColor.DarkRed);
             return;
         }
 
@@ -250,7 +255,7 @@ public class LiteVip : BasePlugin
 
         if (IsUserVip(controller.Index))
         {
-            PrintToChat(controller, "You already have VIP privileges.");
+            PrintToChat(controller, Localizer["vip.AlreadyVipPrivileges"]);
             return;
         }
 
@@ -297,12 +302,10 @@ public class LiteVip : BasePlugin
                 };
             });
 
-            Server.NextFrame(() => PrintToChat(player,
-                $"Key '{key}' has been successfully activated! You are now a member of the VIP group '{vipGroupAndTime.VipGroup}'"));
+            Server.NextFrame(() => PrintToChat(player, Localizer["vip.KeyActivated", key, vipGroupAndTime.VipGroup]));
         }
         else
-            Server.NextFrame(() =>
-                PrintToChat(player, $"Failed to activate key '{key}'. Please check if the key is valid."));
+            Server.NextFrame(() => PrintToChat(player, Localizer["vip.FailActivateKey", key]));
     }
 
     [ConsoleCommand("css_viptest")]
@@ -316,7 +319,7 @@ public class LiteVip : BasePlugin
 
         if (IsUserVip(controller.Index))
         {
-            PrintToChat(controller, "You already have VIP privileges.");
+            PrintToChat(controller, Localizer["vip.AlreadyVipPrivileges"]);
             return;
         }
 
@@ -332,7 +335,7 @@ public class LiteVip : BasePlugin
 
         if (vipTestCount.Count >= vipTestSettings.VipTestCount)
         {
-            Server.NextFrame(() => PrintToChat(player, "You can no longer take the VIP Test"));
+            Server.NextFrame(() => PrintToChat(player, Localizer["viptest.YouCanNoLongerTakeTheVip"]));
             return;
         }
 
@@ -344,7 +347,7 @@ public class LiteVip : BasePlugin
                 $"{(time.Days == 0 ? "" : $"{time.Days}d")} {time.Hours:D2}:{time.Minutes:D2}:{time.Seconds:D2}";
 
             Server.NextFrame(() =>
-                PrintToChat(player, $"The VIP test can only be retaken through: {timeRemainingFormatted}"));
+                PrintToChat(player, Localizer["viptest.RetakenThrough", timeRemainingFormatted]));
             return;
         }
 
@@ -372,7 +375,8 @@ public class LiteVip : BasePlugin
         var timeRemaining = DateTimeOffset.FromUnixTimeSeconds(endTime) - DateTimeOffset.UtcNow;
 
         Server.NextFrame(() => PrintToChat(player,
-            $"You have successfully received the 'VIP Test'! Ends in {timeRemaining.ToString(timeRemaining.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss")}"));
+            Localizer["viptest.SuccessfullyPassed",
+                timeRemaining.ToString(timeRemaining.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss")]));
     }
 
     private async Task AddUserOrUpdateVipTestAsync(string steamId, int endTime, VipTest vipTest)
@@ -394,7 +398,7 @@ public class LiteVip : BasePlugin
         if (controller != null)
             if (!_config.Admins.Contains(controller.SteamID))
             {
-                PrintToChat(controller, "You do not have access to this command");
+                PrintToChat(controller, Localizer["vip.NoAccess"]);
                 return;
             }
 
@@ -687,23 +691,23 @@ public class LiteVip : BasePlugin
 
     private void CreateMenu()
     {
-        var menu = new ChatMenu("\x08--[ \x0CVIP MENU \x08]--");
-        menu.AddMenuOption("Health", (player, option) =>
+        var menu = new ChatMenu(Localizer["vipmenu.Title"]);
+        menu.AddMenuOption(Localizer["vipmenu.Health"], (player, option) =>
             TogglePlayerFunction(player, UsersSettings[player.Index]!.IsHealth ^= true,
                 option.Text));
-        menu.AddMenuOption("Armor", (player, option) =>
+        menu.AddMenuOption(Localizer["vipmenu.Armor"], (player, option) =>
             TogglePlayerFunction(player, UsersSettings[player.Index]!.IsArmor ^= true, option.Text));
-        menu.AddMenuOption("Gravity", (player, _) => AdjustPlayerGravity(player));
-        menu.AddMenuOption("Healthshot", (player, option) =>
+        menu.AddMenuOption(Localizer["vipmenu.Gravity"], (player, _) => AdjustPlayerGravity(player));
+        menu.AddMenuOption(Localizer["vipmenu.Healthshot"], (player, option) =>
             TogglePlayerFunction(player, UsersSettings[player.Index]!.IsHealthshot ^= true,
                 option.Text));
-        menu.AddMenuOption("Decoy Teleport", (player, option) =>
+        menu.AddMenuOption(Localizer["vipmenu.DecoyTeleport"], (player, option) =>
             TogglePlayerFunction(player, UsersSettings[player.Index]!.IsDecoy ^= true, option.Text));
-        menu.AddMenuOption("Jumps", (player, option) =>
+        menu.AddMenuOption(Localizer["vipmenu.Jumps"], (player, option) =>
             TogglePlayerFunction(player, UsersSettings[player.Index]!.IsJumps ^= true, option.Text));
-        menu.AddMenuOption("Items", (player, option) =>
+        menu.AddMenuOption(Localizer["vipmenu.Items"], (player, option) =>
             TogglePlayerFunction(player, UsersSettings[player.Index]!.IsItems ^= true, option.Text));
-        menu.AddMenuOption("Rainbow Model", (player, option) =>
+        menu.AddMenuOption(Localizer["vipmenu.RainbowModel"], (player, option) =>
         {
             var entityIndex = player.Index;
 
@@ -720,7 +724,7 @@ public class LiteVip : BasePlugin
 
             if (!IsUserVip(player.Index))
             {
-                PrintToChat(player, "You do not have access to this command!");
+                PrintToChat(player, Localizer["vip.NoAccess"]);
                 return;
             }
 
@@ -733,7 +737,7 @@ public class LiteVip : BasePlugin
 
                 if (!IsUserVip(player.Index))
                 {
-                    PrintToChat(player, "You do not have access to this command!");
+                    PrintToChat(player, Localizer["vip.NoAccess"]);
                     return;
                 }
 
@@ -743,7 +747,7 @@ public class LiteVip : BasePlugin
 
     private void TogglePlayerFunction(CCSPlayerController player, bool func, string name)
     {
-        PrintToChat(player, !func ? $"{name}: \x02Off" : $"{name}: \x06On");
+        PrintToChat(player, !func ? $"{name}: {Localizer["vip.off"]}" : $"{name}: {Localizer["vip.on"]}");
     }
 
     private void AdjustPlayerGravity(CCSPlayerController? controller)
@@ -758,12 +762,12 @@ public class LiteVip : BasePlugin
 
         if (!gravity)
         {
-            PrintToChat(controller, "Gravity: \x02Off");
+            PrintToChat(controller, $"{Localizer["vipmenu.Gravity"]}: {Localizer["vip.off"]}");
             if (controller.PlayerPawn.Value != null) controller.PlayerPawn.Value.GravityScale = 1.0f;
             return;
         }
 
-        PrintToChat(controller, "Gravity: \x06On");
+        PrintToChat(controller, $"{Localizer["vipmenu.Gravity"]}: {Localizer["vip.on"]}");
         if (group.Gravity != null)
             if (controller.PlayerPawn.Value != null)
                 controller.PlayerPawn.Value.GravityScale = group.Gravity.Value;
@@ -1107,7 +1111,7 @@ public class LiteVip : BasePlugin
 
     private void PrintToChat(CCSPlayerController player, string msg)
     {
-        player.PrintToChat($"\x08[ \x0CLiteVip \x08] {msg}");
+        player.PrintToChat($"[ \x0CLiteVip \x01] {msg}");
     }
 
     private void PrintToServer(string msg, ConsoleColor color)

@@ -11,11 +11,9 @@
 # Datasource local storage ignored files
 /dataSources/
 /dataSources.local.xml
-LRMini/.idea
 *.user
 *.cache
 *.editorconfig
-*.json
 *.pdb
 *.CopyComplete
 *.txt
@@ -48,3 +46,16 @@ LiteVip/obj/release/net7.0/LiteVip.dll
 LiteVip/obj/release/net7.0/ref/LiteVip.dll
 LiteVip/obj/release/net7.0/refint/LiteVip.dll
 old/CounterStrikeSharp.API.dll
+LiteVip/bin/release/net7.0/publish/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+LiteVip/bin/release/net7.0/publish/Microsoft.Extensions.Localization.Abstractions.dll
+LiteVip/bin/release/net7.0/publish/Microsoft.Extensions.Localization.dll
+LiteVip/bin/release/net7.0/publish/Microsoft.Extensions.Options.dll
+LiteVip/bin/release/net7.0/publish/Microsoft.Extensions.Primitives.dll
+LiteVip/bin/release/net7.0/LiteVip.deps.json
+LiteVip/bin/release/net7.0/publish/addons/counterstrikesharp/plugins/LiteVip/LiteVip.deps.json
+LiteVip/bin/release/net7.0/publish/LiteVip.deps.json
+LiteVip/bin/release/net7.0/publish/addons/counterstrikesharp/plugins/LiteVip/lang/ru.json
+LiteVip/bin/release/net7.0/publish/addons/counterstrikesharp/plugins/LiteVip/lang/en.json
+LiteVip/obj/LiteVip.csproj.nuget.dgspec.json
+LiteVip/obj/project.assets.json
+LiteVip/obj/project.packagespec.json
