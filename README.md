@@ -1,3 +1,5 @@
+# This plugin is no longer supported
+
 # cs2-LiteVIP
 plugin for cs2 with basic functions VIP
 
